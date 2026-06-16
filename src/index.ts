@@ -1891,10 +1891,28 @@ function goalCanFire(goalIdx: number, state: SubstrateState): boolean {
   }
 }
 
-function recordOutcome(goalIdx: number, success: boolean): void {
+function recordOutcome(goalIdx: number, success: boolean, evidence?: { body?: unknown; sideEffects?: boolean; noOp?: boolean }): void {
+  // Validate substantive outcome before recording success to prevent Thompson
+  // posterior inflation from trivial/no_op operations (echo-chamber selection).
+  let validatedSuccess = success;
+  if (success && evidence) {
+    const hasSideEffects = evidence.sideEffects === true;
+    const isLegitNoOp = evidence.noOp === true;
+    let hasMeaningfulBody = false;
+    if (evidence.body && typeof evidence.body === "object") {
+      const keys = Object.keys(evidence.body as Record<string, unknown>);
+      hasMeaningfulBody = keys.length > 0 && keys.some(k => {
+        const v = (evidence.body as Record<string, unknown>)[k];
+        return v !== null && v !== undefined && v !== false && v !== "" && v !== 0;
+      });
+    }
+    if (!hasMeaningfulBody && !hasSideEffects && !isLegitNoOp) {
+      validatedSuccess = false;
+    }
+  }
   let m = momentumByGoal.get(goalIdx);
   if (!m) { m = { outcomes: [] }; momentumByGoal.set(goalIdx, m); }
-  m.outcomes.push(success ? "success" : "failure");
+  m.outcomes.push(validatedSuccess ? "success" : "failure");
   while (m.outcomes.length > 10) m.outcomes.shift();
 }
 
