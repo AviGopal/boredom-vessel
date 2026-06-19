@@ -391,6 +391,13 @@ const AUTONOMOUS_GOALS: readonly string[] = [
   // are productive vs dormant/zero-yield. Descriptive (emits no retirement gaps
   // yet). Low cadence; deterministic, cheap.
   "run detector-yield-registry-tick to inventory the detector fleet — join each detector's emitted gaps to whether they landed and how often it is scheduled, and emit a detectorYieldReport classifying each as PRODUCTIVE/LOW_YIELD/DORMANT/UNKNOWN",
+  // goal[49] — compose-topology-tick (2026-06-19). Boredom-driven topology exploration
+  // via activity composition: chains a reliably-succeeding capability pair (leaf×leaf
+  // preferred, cross-linking pendants) into a composite and dispatches it, forming an
+  // organic composition edge that raises the spectral-gap headroom toward the 0.35 that
+  // unlocks the native generative frontier. PRIMARY driver; the systemd compose-teacher
+  // timer is now just a fallback. Exploration rate scales with sample throughput.
+  "run compose-topology-tick to explore the capability topology — find a reliably-succeeding chainable pair, author a composite that chains them, and dispatch it to form an organic composition edge that raises the spectral-gap headroom",
   // NOTE (2026-06-13): obsidian operation is deliberately NOT a core-loop goal.
   // Obsidian is an external app that may be disconnected; forcing it into the
   // self-optimization rotation would pollute the core loop with availability-
@@ -529,6 +536,9 @@ const AUTONOMOUS_GOAL_TARGET_TEMPLATES: readonly (string | undefined)[] = [
   // deterministic single-resolver tick; the goal text is novel so Thompson must
   // not misroute it to a semantically-near detector template.
   "development-vessel:detector-yield-registry-tick",
+  // goal[49] — compose-topology-tick: explicit target so the goal routes deterministically
+  // to the composition resolver (bypasses Thompson — the goal text is novel).
+  "development-vessel:compose-topology-tick",
 ];
 
 /**
@@ -602,6 +612,7 @@ const AUTONOMOUS_GOAL_COSTS: readonly GoalCost[] = [
   "cheap",     // goal[46] generative-frontier-gap-tick (1 spectral read + templates/traces GET + at most 1 gap POST; no LLM)
   "cheap",     // goal[47] dead-end-decision-scan-tick (1 SurrealDB /sql read + in-memory scan + bounded gap POSTs; no LLM)
   "cheap",     // goal[48] detector-yield-registry-tick (2 local fs reads — gaps.json + selector snapshot — + in-memory join; no LLM, no gap POSTs by default)
+  "moderate",  // goal[49] compose-topology-tick (SQL discovery + template author + 1 goal-host dispatch that runs a 2-step composite, ~60-100s; bounded, no LLM in the tick itself)
 ];
 
 // Per-goal extra variables passed to goal-host-vessel /run-goal. Most goals need only the
