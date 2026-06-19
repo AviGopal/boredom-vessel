@@ -372,6 +372,13 @@ const AUTONOMOUS_GOALS: readonly string[] = [
   // obsidian-coupled detect-recurring-pattern in the core loop (the author was
   // previously unwired for lack of a non-obsidian feeder). Deterministic, cheap.
   "run detect-recurring-trace-pattern to mine recent success traces for the most-recurrent output-shape topology and dispatch draft-activity-from-pattern so the substrate authors a clean producing chain for it",
+  // goal[46] — generative-frontier-gap-tick (Seam ①, 2026-06-19). The substrate's
+  // only GENERATIVE intent source: proposes the next reachable capability from the
+  // topology frontier rather than reacting to a failure/demand. HARD-GATED on
+  // spectral-gap headroom (fail-closed), rate-limited, and stable-id deduped — so
+  // it is structurally incapable of flooding. On the current near-pure star
+  // (star_ratio ~0.97 → headroom ~0.03) the gate correctly REFUSES all emission.
+  "run generative-frontier-gap-tick to find the highest-traffic produced-but-uncomposed shape and, only if spectral headroom exceeds threshold, emit ONE substrate_generative substrateGap proposing a consumer capability",
   // NOTE (2026-06-13): obsidian operation is deliberately NOT a core-loop goal.
   // Obsidian is an external app that may be disconnected; forcing it into the
   // self-optimization rotation would pollute the core loop with availability-
@@ -498,6 +505,10 @@ const AUTONOMOUS_GOAL_TARGET_TEMPLATES: readonly (string | undefined)[] = [
   // deterministic single-resolver feeder; the goal text is novel so Thompson
   // must not misroute it.
   "development-vessel:detect-recurring-trace-pattern",
+  // goal[46] — generative-frontier-gap-tick (Seam ①, 2026-06-19). Explicit
+  // targetTemplateId: deterministic single-resolver tick; the goal text is novel
+  // so Thompson must not misroute it.
+  "development-vessel:generative-frontier-gap-tick",
 ];
 
 /**
@@ -568,6 +579,7 @@ const AUTONOMOUS_GOAL_COSTS: readonly GoalCost[] = [
   "moderate",  // goal[43] vessel-scaffold-trigger-tick (fs_list + 1 haiku design call + json_path_extract + HTTP POST → scaffold)
   "cheap",     // goal[44] characterize-arrived-vessel (1 registry POST + discover-by-shapes per new-vessel shape + scenario write; no LLM, usually a no-op baseline)
   "cheap",     // goal[45] detect-recurring-trace-pattern (1 traces GET + in-memory group + cluster write + 1 author dispatch; no LLM)
+  "cheap",     // goal[46] generative-frontier-gap-tick (1 spectral read + templates/traces GET + at most 1 gap POST; no LLM)
 ];
 
 // Per-goal extra variables passed to goal-host-vessel /run-goal. Most goals need only the
