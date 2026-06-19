@@ -385,6 +385,12 @@ const AUTONOMOUS_GOALS: readonly string[] = [
   // decision_without_action substrateGap per systematic class. Routes to the
   // drafter (recombination-fixable). Deterministic, cheap.
   "run dead-end-decision-scan-tick to detect decision/selection tasks whose produced impulse is consumed by no downstream task in the same trajectory and emit a decision_without_action substrateGap for each systematic class",
+  // goal[48] — detector-yield-registry-tick (2026-06-19). The curative half of
+  // detector-fleet management: joins gap provenance × gap outcomes × scheduling
+  // into a per-detector yield inventory so the substrate can SEE which detectors
+  // are productive vs dormant/zero-yield. Descriptive (emits no retirement gaps
+  // yet). Low cadence; deterministic, cheap.
+  "run detector-yield-registry-tick to inventory the detector fleet — join each detector's emitted gaps to whether they landed and how often it is scheduled, and emit a detectorYieldReport classifying each as PRODUCTIVE/LOW_YIELD/DORMANT/UNKNOWN",
   // NOTE (2026-06-13): obsidian operation is deliberately NOT a core-loop goal.
   // Obsidian is an external app that may be disconnected; forcing it into the
   // self-optimization rotation would pollute the core loop with availability-
@@ -519,6 +525,10 @@ const AUTONOMOUS_GOAL_TARGET_TEMPLATES: readonly (string | undefined)[] = [
   // deterministic single-resolver tick; the goal text is novel so Thompson must
   // not misroute it.
   "development-vessel:dead-end-decision-scan-tick",
+  // goal[48] — detector-yield-registry-tick (2026-06-19). Explicit targetTemplateId:
+  // deterministic single-resolver tick; the goal text is novel so Thompson must
+  // not misroute it to a semantically-near detector template.
+  "development-vessel:detector-yield-registry-tick",
 ];
 
 /**
@@ -591,6 +601,7 @@ const AUTONOMOUS_GOAL_COSTS: readonly GoalCost[] = [
   "cheap",     // goal[45] detect-recurring-trace-pattern (1 traces GET + in-memory group + cluster write + 1 author dispatch; no LLM)
   "cheap",     // goal[46] generative-frontier-gap-tick (1 spectral read + templates/traces GET + at most 1 gap POST; no LLM)
   "cheap",     // goal[47] dead-end-decision-scan-tick (1 SurrealDB /sql read + in-memory scan + bounded gap POSTs; no LLM)
+  "cheap",     // goal[48] detector-yield-registry-tick (2 local fs reads — gaps.json + selector snapshot — + in-memory join; no LLM, no gap POSTs by default)
 ];
 
 // Per-goal extra variables passed to goal-host-vessel /run-goal. Most goals need only the
