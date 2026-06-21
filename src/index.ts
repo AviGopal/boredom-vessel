@@ -2175,14 +2175,9 @@ interface CostSample { ms: number; tokens: number; at: number }
 // need for a sample window sort on every call.
 interface TemplateCostRecord {
   ewma: number;
-  n: number;
-  // Welford's online variance tracking
-  m2: number;   // sum of squared deviations from the running mean
-  variance: number;
-  /** Welford online M2 accumulator for variance */
-  wM2: number;
-  /** Welford online mean for variance */
-  wMean: number;
+  count: number;
+  // Recent samples for variance-aware / percentile-based estimation
+  recentSamples: number[];
 }
 
 interface CostEntry {
@@ -2213,6 +2208,8 @@ function pushResidual(arr: { rel: number; at: number }[], actual: number, expect
   }
 }
 
+const RECENT_SAMPLE_WINDOW = 20;
+
 function recordCostByTemplate(templateId: string, ms: number, tokens: number): void {
   if (!Number.isFinite(ms) || ms < 0) return;
   const tok = Number.isFinite(tokens) && tokens > 0 ? tokens : 0;
@@ -2227,9 +2224,15 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
       variance: 0,
       tokEwma: tok > 0 ? tok : 0, tokCount: tok > 0 ? 1 : 0, tokM2: 0, tokEwmaVar: 0,
       tokVariance: 0,
+      recentSamples: [ms],
     };
     costByTemplate.set(templateId, c);
   } else {
+    // Maintain a capped recent-sample window for percentile-based estimates
+    // of bimodal cost distributions (fast-normal + occasional slow-tail).
+    c.recentSamples = c.recentSamples ?? [];
+    c.recentSamples.push(ms);
+    if (c.recentSamples.length > RECENT_SAMPLE_WINDOW) c.recentSamples.shift();
     // Validate-before-update: residual of each actual against the current expectation.
     if (c.count >= 2) {
       pushResidual(costResidualsMs, ms, c.ewma);
@@ -2295,29 +2298,36 @@ function computePoolMedians(): { ms: number; tokens: number } {
 function poolMedianCostMs(): number { return computePoolMedians().ms; }
 function poolMedianCostTokens(): number { return computePoolMedians().tokens; }
 
-/**
- * Returns a percentile-shifted cost estimate: EWMA mean + 0.5 * blendedStdDev.
- * The +0.5σ shift pulls the estimate toward the slower mode of bimodal
- * distributions (fast-normal + occasional slow-tail) so the cost model is
- * conservatively biased rather than optimistically biased. Returns Infinity
- * when fewer than 2 samples exist (cold-start), preserving the existing
- * behaviour that cold-start templates return Infinity from expectedCostMs
- * and therefore get the neutral poolMedian applied by combinedCostAdj.
- * The [0.5, 2.0] clamp applied downstream in combinedCostAdj is unaffected.
- */
+/** Compute a robust percentile from a sorted array. */
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  if (sorted.length === 1) return sorted[0]!;
+  const idx = p * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo]!;
+  return sorted[lo]! + (idx - lo) * (sorted[hi]! - sorted[lo]!);
+}
+
 function expectedCostMs(templateId: string): number {
   const c = costByTemplate.get(templateId);
-  if (!c || c.count < 2) return poolMedianCostMs(); // warm-start neutral (partial pooling §4.2)
-  // For bimodal-cost templates (fast-normal + occasional slow-timeout) the plain EWMA mean
-  // underpredicts the slow mode. Use mean + 0.5*stdDev as a robust upward-adjusted estimate
-  // so the cost posterior reflects spread rather than anchoring on the fast-mode mean.
-  // Welford sample variance (m2/(n-1)) is used — unbiased estimator that correctly tracks
-  // the full bimodal spread, unlike the EWMA variance which decays old deviations and
-  // underweights rare slow tails. The +0.5σ shift conservatively biases the estimate
-  // toward the slower mode, reducing positive residuals for bimodal templates.
-  const sampleVar = c.count > 1 ? c.m2 / (c.count - 1) : 0;
-  const stdDev = Math.sqrt(Math.max(0, sampleVar));
-  return c.ewma + 0.5 * stdDev;
+  if (!c || c.count < 2) return Infinity; // cold-start: unknown cost
+  // Use variance-aware estimate: if spread is high (bimodal), use P75 to avoid
+  // underestimating the slow mode; otherwise fall back to EWMA.
+  const samples = c.recentSamples;
+  if (samples && samples.length >= 4) {
+    const sorted = [...samples].sort((a, b) => a - b);
+    const p25 = percentile(sorted, 0.25);
+    const p75 = percentile(sorted, 0.75);
+    const iqr = p75 - p25;
+    const med = percentile(sorted, 0.5);
+    // Coefficient of variation proxy: IQR/median signals bimodality
+    if (med > 0 && iqr / med > 0.5) {
+      // Bimodal/high-variance: use P75 as the representative cost
+      return p75;
+    }
+  }
+  return c.ewma;
 }
 function expectedCostTokens(templateId: string): number {
   const c = costByTemplate.get(templateId);
@@ -2325,23 +2335,19 @@ function expectedCostTokens(templateId: string): number {
   return c.tokEwma;
 }
 
-// Combined value-of-information cost adjustment across the cost vector. Each present
-// dimension is normalized to its own pool median and averaged (a pool with no token
-// usage → ms-only). sqrt keeps it gentle; clamp [0.5,2.0] so cost can neither
-// dominate the exploration bonus nor zero a template.
-function combinedCostAdj(templateId: string): number {
-  const med = computePoolMedians();
-  const ratios: number[] = [];
-  if (med.ms > 0) ratios.push(expectedCostMs(templateId) / med.ms);
-  if (med.tokens > 0) {
-    const t = expectedCostTokens(templateId);
-    // No token history in a token-using pool → neutral on that axis (ratio 1.0),
-    // not free, so a never-yet-LLM template isn't spuriously over-rewarded.
-    ratios.push(t > 0 ? t / med.tokens : 1.0);
+// Combined value-of-information cost adjustment. Uses the variance-aware
+// expectedCostMs estimate (P75 for bimodal distributions, EWMA otherwise)
+// as the predicted cost, then computes ratio = actual / predicted.
+// Clamp [0.5, 2.0] preserved as required so cost can neither dominate the
+// exploration bonus nor zero a template.
+function combinedCostAdj(templateId: string, baseCostMs: number): number {
+  const expected = expectedCostMs(templateId);
+  if (!isFinite(expected) || expected <= 0) {
+    return 1.0; // cold-start or degenerate: no adjustment
   }
-  if (ratios.length === 0) return 1.0;
-  const rel = ratios.reduce((s, r) => s + r, 0) / ratios.length;
-  return Math.max(0.5, Math.min(2.0, Math.sqrt(1 / Math.max(rel, 1e-6))));
+  const ratio = baseCostMs / expected;
+  // Clamp to [0.5, 2.0] — preserved as required
+  return Math.min(2.0, Math.max(0.5, ratio));
 }
 
 // V28 (2026-06-14): snapshot the selector's reward distribution to a bind-mounted
