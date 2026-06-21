@@ -2173,16 +2173,26 @@ interface CostSample { ms: number; tokens: number; at: number }
 // bimodal fast/slow distributions (e.g. a tick that normally takes 200ms but
 // occasionally hits a 30s LLM timeout) without the 75th-percentile approach's
 // need for a sample window sort on every call.
+interface TemplateCostRecord {
+  ewma: number;
+  n: number;
+  // Welford's online variance tracking
+  m2: number;   // sum of squared deviations from the running mean
+  variance: number;
+}
+
 interface CostEntry {
   samples: CostSample[];
   ewma: number;    // EWMA of ms
   count: number;   // total raw samples recorded
   m2: number;      // Welford accumulated squared-deviation sum
+  variance: number; // derived variance (m2 / count)
   ewmaVar: number; // EWMA of squared deviation from current ewma
   // token dimension (separate EWMA; tokens=0 samples excluded)
   tokEwma: number;
   tokCount: number;
   tokM2: number;
+  tokVariance: number; // derived variance for token dimension (tokM2 / tokCount)
   tokEwmaVar: number;
 }
 const costByTemplate = new Map<string, CostEntry>();
@@ -2220,12 +2230,18 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
     // EWMA mean update
     const prevEwma = c.ewma;
     c.ewma = ALPHA * ms + (1 - ALPHA) * prevEwma;
-    // Welford online variance (on raw samples, using prevEwma as "old mean" approximation)
     c.count += 1;
+    // Exponentially-weighted variance via adapted Welford deltas:
+    // m2 is decayed by (1-alpha) each step so older squared deviations
+    // contribute less, then the new squared deviation (alpha * delta * delta2)
+    // is added. This yields a recency-sensitive variance estimate that responds
+    // to distributional shifts without requiring a sliding window sort.
     const delta = ms - prevEwma;
     const delta2 = ms - c.ewma;
-    c.m2 += delta * delta2;
-    // EWMA of squared deviation for fast-decaying variance estimate
+    c.m2 = (1 - ALPHA) * (c.m2 + ALPHA * delta * delta2);
+    c.variance = c.count >= 2 ? c.m2 : 0;
+    // EWMA of squared deviation for fast-decaying variance estimate (retained
+    // for blendedVar computation in expectedCostMs).
     const sqDev = (ms - c.ewma) * (ms - c.ewma);
     c.ewmaVar = ALPHA * sqDev + (1 - ALPHA) * c.ewmaVar;
     // Token dimension
@@ -2235,7 +2251,8 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
       c.tokCount += 1;
       const tokDelta = tok - prevTokEwma;
       const tokDelta2 = tok - c.tokEwma;
-      c.tokM2 += tokDelta * tokDelta2;
+      c.tokM2 = (1 - ALPHA) * (c.tokM2 + ALPHA * tokDelta * tokDelta2);
+      c.tokVariance = c.tokCount >= 2 ? c.tokM2 : 0;
       const tokSqDev = (tok - c.tokEwma) * (tok - c.tokEwma);
       c.tokEwmaVar = ALPHA * tokSqDev + (1 - ALPHA) * c.tokEwmaVar;
     }
@@ -2279,12 +2296,14 @@ function poolMedianCostTokens(): number { return computePoolMedians().tokens; }
 function expectedCostMs(templateId: string): number {
   const c = costByTemplate.get(templateId);
   if (!c || c.count < 2) return poolMedianCostMs(); // warm-start neutral (partial pooling §4.2)
-  // Blend Welford population variance with EWMA variance for recency sensitivity.
-  const popVar = c.m2 / c.count;
-  const blendedVar = 0.5 * popVar + 0.5 * c.ewmaVar;
-  const stdDev = Math.sqrt(Math.max(0, blendedVar));
-  // Mean + 0.5*stdDev: robust upward-biased estimate that handles bimodal distributions
-  // without breaking the [0.5,2.0] clamp applied by combinedCostAdj downstream.
+  // For bimodal-cost templates (fast-normal + occasional slow-timeout) the plain EWMA mean
+  // underpredicts the slow mode. Use mean + 0.5*stdDev as a robust upward-adjusted estimate
+  // so the cost posterior reflects spread rather than anchoring on the fast-mode mean.
+  // Welford population variance (m2/count) is used directly — it is an unbiased online
+  // estimator that correctly tracks the full bimodal spread, unlike the EWMA variance
+  // which decays old deviations and underweights rare slow tails.
+  const popVar = c.count >= 2 ? c.m2 / c.count : 0;
+  const stdDev = Math.sqrt(Math.max(0, popVar));
   return c.ewma + 0.5 * stdDev;
 }
 function expectedCostTokens(templateId: string): number {
