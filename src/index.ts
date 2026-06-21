@@ -2153,8 +2153,8 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
 // same finding in 180s — yet the fast one collects ~900× more samples per unit
 // wall-clock, and wall-clock is the substrate's actual rate limiter (SUBSTRATE_AS_MDP
 // §7). Cost is the negative component of the §1.1 reward vector, so we treat it the
-// SAME way as reward: maintain a per-template expected-cost posterior (in-window mean
-// of observed dispatch wall-clock), VALIDATE each actual against the prior expectation
+// SAME way as reward: maintain a per-template expected-cost posterior (EWMA mean +
+// Welford online variance), VALIDATE each actual against the prior expectation
 // (the residual is a detected cost-surprise — the analog of budget_exhausted), and
 // fold value-per-cost into the UCB score so equal-yield templates rank by how cheaply
 // they yield. duration_ms is the cost parameter already measured; cost_usd / tokens
@@ -2168,7 +2168,24 @@ const DEFAULT_COST_MS = 5000;       // pool default before any observation lands
 // carry tokens=0, so the token dim only discriminates among LLM-using templates —
 // honest "all cost parameters" coverage without fabricating cost where there is none.
 interface CostSample { ms: number; tokens: number; at: number }
-const costByTemplate = new Map<string, { samples: CostSample[] }>();
+// Per-template cost tracking: EWMA mean + Welford online variance + EWMA variance
+// for a recency-sensitive blended stdDev estimate. The blended estimate handles
+// bimodal fast/slow distributions (e.g. a tick that normally takes 200ms but
+// occasionally hits a 30s LLM timeout) without the 75th-percentile approach's
+// need for a sample window sort on every call.
+interface CostEntry {
+  samples: CostSample[];
+  ewma: number;    // EWMA of ms
+  count: number;   // total raw samples recorded
+  m2: number;      // Welford accumulated squared-deviation sum
+  ewmaVar: number; // EWMA of squared deviation from current ewma
+  // token dimension (separate EWMA; tokens=0 samples excluded)
+  tokEwma: number;
+  tokCount: number;
+  tokM2: number;
+  tokEwmaVar: number;
+}
+const costByTemplate = new Map<string, CostEntry>();
 // Per-dimension cost-expectation validation: rolling |actual − expected| / expected.
 // Surfaced in the selector snapshot so the substrate's *expectations about cost*
 // become first-class, trace-inspectable observables, per dimension.
@@ -2185,18 +2202,45 @@ function pushResidual(arr: { rel: number; at: number }[], actual: number, expect
 function recordCostByTemplate(templateId: string, ms: number, tokens: number): void {
   if (!Number.isFinite(ms) || ms < 0) return;
   const tok = Number.isFinite(tokens) && tokens > 0 ? tokens : 0;
-  // Validate-before-update: residual of each actual against the current expectation.
-  const prior = costByTemplate.get(templateId);
-  if (prior && prior.samples.length > 0) {
-    const live = prior.samples.filter((s) => s.at >= Date.now() - COST_TTL_MS);
-    if (live.length > 0) {
-      pushResidual(costResidualsMs, ms, live.reduce((s, o) => s + o.ms, 0) / live.length);
-      const tokLive = live.filter((s) => s.tokens > 0);
-      if (tok > 0 && tokLive.length > 0) pushResidual(costResidualsTok, tok, tokLive.reduce((s, o) => s + o.tokens, 0) / tokLive.length);
+  const ALPHA = 0.2;
+  let c = costByTemplate.get(templateId);
+  if (!c) {
+    c = {
+      samples: [],
+      ewma: ms, count: 1, m2: 0, ewmaVar: 0,
+      tokEwma: tok > 0 ? tok : 0, tokCount: tok > 0 ? 1 : 0, tokM2: 0, tokEwmaVar: 0,
+    };
+    costByTemplate.set(templateId, c);
+  } else {
+    // Validate-before-update: residual of each actual against the current expectation.
+    if (c.count >= 2) {
+      pushResidual(costResidualsMs, ms, c.ewma);
+      if (tok > 0 && c.tokCount >= 2) pushResidual(costResidualsTok, tok, c.tokEwma);
+    }
+    // EWMA mean update
+    const prevEwma = c.ewma;
+    c.ewma = ALPHA * ms + (1 - ALPHA) * prevEwma;
+    // Welford online variance (on raw samples, using prevEwma as "old mean" approximation)
+    c.count += 1;
+    const delta = ms - prevEwma;
+    const delta2 = ms - c.ewma;
+    c.m2 += delta * delta2;
+    // EWMA of squared deviation for fast-decaying variance estimate
+    const sqDev = (ms - c.ewma) * (ms - c.ewma);
+    c.ewmaVar = ALPHA * sqDev + (1 - ALPHA) * c.ewmaVar;
+    // Token dimension
+    if (tok > 0) {
+      const prevTokEwma = c.tokEwma;
+      c.tokEwma = ALPHA * tok + (1 - ALPHA) * prevTokEwma;
+      c.tokCount += 1;
+      const tokDelta = tok - prevTokEwma;
+      const tokDelta2 = tok - c.tokEwma;
+      c.tokM2 += tokDelta * tokDelta2;
+      const tokSqDev = (tok - c.tokEwma) * (tok - c.tokEwma);
+      c.tokEwmaVar = ALPHA * tokSqDev + (1 - ALPHA) * c.tokEwmaVar;
     }
   }
-  let c = costByTemplate.get(templateId);
-  if (!c) { c = { samples: [] }; costByTemplate.set(templateId, c); }
+  // Maintain the raw sample window for pool-median computation and snapshot export.
   c.samples.push({ ms, tokens: tok, at: Date.now() });
   const cutoff = Date.now() - COST_TTL_MS;
   while (c.samples.length > 0 && c.samples[0]!.at < cutoff) c.samples.shift();
@@ -2205,17 +2249,14 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
 
 let _poolMedianCache: { at: number; ms: number; tokens: number } | null = null;
 function computePoolMedians(): { ms: number; tokens: number } {
-  // Memo within a selection cycle. Median, not mean, so one 180s timeout (or one
-  // huge-token drafter run) doesn't drag the pool reference up.
+  // Memo within a selection cycle. Median of per-template EWMA means, so one
+  // 180s timeout (or one huge-token drafter run) doesn't drag the pool reference up.
   if (_poolMedianCache && Date.now() - _poolMedianCache.at < 1000) return { ms: _poolMedianCache.ms, tokens: _poolMedianCache.tokens };
-  const cutoff = Date.now() - COST_TTL_MS;
   const msMeans: number[] = [];
   const tokMeans: number[] = [];
   for (const c of costByTemplate.values()) {
-    const live = c.samples.filter((s) => s.at >= cutoff);
-    if (live.length > 0) msMeans.push(live.reduce((s, o) => s + o.ms, 0) / live.length);
-    const tokLive = live.filter((s) => s.tokens > 0);
-    if (tokLive.length > 0) tokMeans.push(tokLive.reduce((s, o) => s + o.tokens, 0) / tokLive.length);
+    if (c.count >= 1) msMeans.push(c.ewma);
+    if (c.tokCount >= 1) tokMeans.push(c.tokEwma);
   }
   const median = (a: number[], d: number): number => { if (a.length === 0) return d; a.sort((x, y) => x - y); return a[Math.floor(a.length / 2)]!; };
   const out = { ms: median(msMeans, DEFAULT_COST_MS), tokens: median(tokMeans, 0) };
@@ -2225,21 +2266,31 @@ function computePoolMedians(): { ms: number; tokens: number } {
 function poolMedianCostMs(): number { return computePoolMedians().ms; }
 function poolMedianCostTokens(): number { return computePoolMedians().tokens; }
 
+/**
+ * Returns a percentile-shifted cost estimate: EWMA mean + 0.5 * blendedStdDev.
+ * The +0.5σ shift pulls the estimate toward the slower mode of bimodal
+ * distributions (fast-normal + occasional slow-tail) so the cost model is
+ * conservatively biased rather than optimistically biased. Returns Infinity
+ * when fewer than 2 samples exist (cold-start), preserving the existing
+ * behaviour that cold-start templates return Infinity from expectedCostMs
+ * and therefore get the neutral poolMedian applied by combinedCostAdj.
+ * The [0.5, 2.0] clamp applied downstream in combinedCostAdj is unaffected.
+ */
 function expectedCostMs(templateId: string): number {
   const c = costByTemplate.get(templateId);
-  if (!c || c.samples.length === 0) return poolMedianCostMs(); // warm-start neutral (partial pooling §4.2)
-  const cutoff = Date.now() - COST_TTL_MS;
-  const live = c.samples.filter((s) => s.at >= cutoff);
-  if (live.length === 0) return poolMedianCostMs();
-  const sorted = live.map((o) => o.ms).sort((a, b) => a - b);
-  return sorted[Math.floor(0.75 * (sorted.length - 1))];
+  if (!c || c.count < 2) return poolMedianCostMs(); // warm-start neutral (partial pooling §4.2)
+  // Blend Welford population variance with EWMA variance for recency sensitivity.
+  const popVar = c.m2 / c.count;
+  const blendedVar = 0.5 * popVar + 0.5 * c.ewmaVar;
+  const stdDev = Math.sqrt(Math.max(0, blendedVar));
+  // Mean + 0.5*stdDev: robust upward-biased estimate that handles bimodal distributions
+  // without breaking the [0.5,2.0] clamp applied by combinedCostAdj downstream.
+  return c.ewma + 0.5 * stdDev;
 }
 function expectedCostTokens(templateId: string): number {
   const c = costByTemplate.get(templateId);
-  if (!c) return 0;
-  const live = c.samples.filter((s) => s.at >= Date.now() - COST_TTL_MS && s.tokens > 0);
-  if (live.length === 0) return 0;
-  return live.reduce((s, o) => s + o.tokens, 0) / live.length;
+  if (!c || c.tokCount < 2) return 0;
+  return c.tokEwma;
 }
 
 // Combined value-of-information cost adjustment across the cost vector. Each present
