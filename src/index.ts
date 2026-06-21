@@ -2179,6 +2179,10 @@ interface TemplateCostRecord {
   // Welford's online variance tracking
   m2: number;   // sum of squared deviations from the running mean
   variance: number;
+  /** Welford online M2 accumulator for variance */
+  wM2: number;
+  /** Welford online mean for variance */
+  wMean: number;
 }
 
 interface CostEntry {
@@ -2218,7 +2222,11 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
     c = {
       samples: [],
       ewma: ms, count: 1, m2: 0, ewmaVar: 0,
+      // Welford online tracking initialised at first sample
+      wM2: 0, wMean: ms,
+      variance: 0,
       tokEwma: tok > 0 ? tok : 0, tokCount: tok > 0 ? 1 : 0, tokM2: 0, tokEwmaVar: 0,
+      tokVariance: 0,
     };
     costByTemplate.set(templateId, c);
   } else {
@@ -2231,15 +2239,19 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
     const prevEwma = c.ewma;
     c.ewma = ALPHA * ms + (1 - ALPHA) * prevEwma;
     c.count += 1;
-    // Exponentially-weighted variance via adapted Welford deltas:
-    // m2 is decayed by (1-alpha) each step so older squared deviations
-    // contribute less, then the new squared deviation (alpha * delta * delta2)
-    // is added. This yields a recency-sensitive variance estimate that responds
-    // to distributional shifts without requiring a sliding window sort.
+    // Welford online mean + M2 update (population variance = wM2 / count).
+    // This is the reference estimator used by expectedCostMs for stdDev;
+    // it correctly tracks the full bimodal spread unlike the decayed EWMA variant.
+    const wDelta = ms - c.wMean;
+    c.wMean += wDelta / c.count;
+    const wDelta2 = ms - c.wMean;
+    c.wM2 += wDelta * wDelta2;
+    c.variance = c.count >= 2 ? c.wM2 / c.count : 0;
+    // Exponentially-weighted M2 retained for fast-decaying variance estimate
+    // (used in blendedVar / ewmaVar reads elsewhere).
     const delta = ms - prevEwma;
     const delta2 = ms - c.ewma;
     c.m2 = (1 - ALPHA) * (c.m2 + ALPHA * delta * delta2);
-    c.variance = c.count >= 2 ? c.m2 : 0;
     // EWMA of squared deviation for fast-decaying variance estimate (retained
     // for blendedVar computation in expectedCostMs).
     const sqDev = (ms - c.ewma) * (ms - c.ewma);
@@ -2299,11 +2311,12 @@ function expectedCostMs(templateId: string): number {
   // For bimodal-cost templates (fast-normal + occasional slow-timeout) the plain EWMA mean
   // underpredicts the slow mode. Use mean + 0.5*stdDev as a robust upward-adjusted estimate
   // so the cost posterior reflects spread rather than anchoring on the fast-mode mean.
-  // Welford population variance (m2/count) is used directly — it is an unbiased online
-  // estimator that correctly tracks the full bimodal spread, unlike the EWMA variance
-  // which decays old deviations and underweights rare slow tails.
-  const popVar = c.count >= 2 ? c.m2 / c.count : 0;
-  const stdDev = Math.sqrt(Math.max(0, popVar));
+  // Welford sample variance (m2/(n-1)) is used — unbiased estimator that correctly tracks
+  // the full bimodal spread, unlike the EWMA variance which decays old deviations and
+  // underweights rare slow tails. The +0.5σ shift conservatively biases the estimate
+  // toward the slower mode, reducing positive residuals for bimodal templates.
+  const sampleVar = c.count > 1 ? c.m2 / (c.count - 1) : 0;
+  const stdDev = Math.sqrt(Math.max(0, sampleVar));
   return c.ewma + 0.5 * stdDev;
 }
 function expectedCostTokens(templateId: string): number {
