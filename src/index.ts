@@ -2153,8 +2153,8 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
 // same finding in 180s — yet the fast one collects ~900× more samples per unit
 // wall-clock, and wall-clock is the substrate's actual rate limiter (SUBSTRATE_AS_MDP
 // §7). Cost is the negative component of the §1.1 reward vector, so we treat it the
-// SAME way as reward: maintain a per-template expected-cost posterior (EWMA mean +
-// Welford online variance), VALIDATE each actual against the prior expectation
+// SAME way as reward: maintain a per-template expected-cost posterior (in-window mean
+// of observed dispatch wall-clock), VALIDATE each actual against the prior expectation
 // (the residual is a detected cost-surprise — the analog of budget_exhausted), and
 // fold value-per-cost into the UCB score so equal-yield templates rank by how cheaply
 // they yield. duration_ms is the cost parameter already measured; cost_usd / tokens
@@ -2168,33 +2168,27 @@ const DEFAULT_COST_MS = 5000;       // pool default before any observation lands
 // carry tokens=0, so the token dim only discriminates among LLM-using templates —
 // honest "all cost parameters" coverage without fabricating cost where there is none.
 interface CostSample { ms: number; tokens: number; at: number }
-// Per-template cost tracking: EWMA mean + Welford online variance + EWMA variance
-// for a recency-sensitive blended stdDev estimate. The blended estimate handles
-// bimodal fast/slow distributions (e.g. a tick that normally takes 200ms but
-// occasionally hits a 30s LLM timeout) without the 75th-percentile approach's
-// need for a sample window sort on every call.
-interface TemplateCostRecord {
-  ewma: number;
-  count: number;
-  // Recent samples for variance-aware / percentile-based estimation
-  recentSamples: number[];
-}
 
-interface CostEntry {
+/**
+ * Per-template cost entry. Stores:
+ *   - ewma: exponentially-weighted moving average of ms cost (α=0.2)
+ *   - n: total samples observed (unbounded counter for EWMA stability)
+ *   - samples: sliding window of raw CostSamples for percentile/variance estimates
+ *   - ewmaVariance: EWMA of squared deviations from ewma — variance proxy that
+ *     detects bimodal distributions (e.g. a template that usually takes 200ms but
+ *     occasionally takes 180s). High ewmaVariance → use a robust percentile estimate
+ *     (p75) rather than the EWMA mean, which would be pulled toward the slow mode.
+ */
+interface TemplateCostEntry {
+  ewma: number;
+  n: number;
+  /** Rolling window of recent cost samples for variance/percentile estimates */
   samples: CostSample[];
-  ewma: number;    // EWMA of ms
-  count: number;   // total raw samples recorded
-  m2: number;      // Welford accumulated squared-deviation sum
-  variance: number; // derived variance (m2 / count)
-  ewmaVar: number; // EWMA of squared deviation from current ewma
-  // token dimension (separate EWMA; tokens=0 samples excluded)
-  tokEwma: number;
-  tokCount: number;
-  tokM2: number;
-  tokVariance: number; // derived variance for token dimension (tokM2 / tokCount)
-  tokEwmaVar: number;
+  /** EWMA of squared deviations from ewma (variance proxy) */
+  ewmaVariance: number;
 }
-const costByTemplate = new Map<string, CostEntry>();
+const EWMA_ALPHA = 0.2; // smoothing factor: α=0.2 weights last sample ~20%, recent history ~80%
+const costByTemplate = new Map<string, TemplateCostEntry>();
 // Per-dimension cost-expectation validation: rolling |actual − expected| / expected.
 // Surfaced in the selector snapshot so the substrate's *expectations about cost*
 // become first-class, trace-inspectable observables, per dimension.
@@ -2208,87 +2202,53 @@ function pushResidual(arr: { rel: number; at: number }[], actual: number, expect
   }
 }
 
-const RECENT_SAMPLE_WINDOW = 20;
+const COST_SAMPLE_WINDOW = 20;
 
 function recordCostByTemplate(templateId: string, ms: number, tokens: number): void {
   if (!Number.isFinite(ms) || ms < 0) return;
   const tok = Number.isFinite(tokens) && tokens > 0 ? tokens : 0;
-  const ALPHA = 0.2;
-  let c = costByTemplate.get(templateId);
-  if (!c) {
-    c = {
-      samples: [],
-      ewma: ms, count: 1, m2: 0, ewmaVar: 0,
-      // Welford online tracking initialised at first sample
-      wM2: 0, wMean: ms,
-      variance: 0,
-      tokEwma: tok > 0 ? tok : 0, tokCount: tok > 0 ? 1 : 0, tokM2: 0, tokEwmaVar: 0,
-      tokVariance: 0,
-      recentSamples: [ms],
-    };
-    costByTemplate.set(templateId, c);
-  } else {
-    // Maintain a capped recent-sample window for percentile-based estimates
-    // of bimodal cost distributions (fast-normal + occasional slow-tail).
-    c.recentSamples = c.recentSamples ?? [];
-    c.recentSamples.push(ms);
-    if (c.recentSamples.length > RECENT_SAMPLE_WINDOW) c.recentSamples.shift();
-    // Validate-before-update: residual of each actual against the current expectation.
-    if (c.count >= 2) {
-      pushResidual(costResidualsMs, ms, c.ewma);
-      if (tok > 0 && c.tokCount >= 2) pushResidual(costResidualsTok, tok, c.tokEwma);
-    }
-    // EWMA mean update
-    const prevEwma = c.ewma;
-    c.ewma = ALPHA * ms + (1 - ALPHA) * prevEwma;
-    c.count += 1;
-    // Welford online mean + M2 update (population variance = wM2 / count).
-    // This is the reference estimator used by expectedCostMs for stdDev;
-    // it correctly tracks the full bimodal spread unlike the decayed EWMA variant.
-    const wDelta = ms - c.wMean;
-    c.wMean += wDelta / c.count;
-    const wDelta2 = ms - c.wMean;
-    c.wM2 += wDelta * wDelta2;
-    c.variance = c.count >= 2 ? c.wM2 / c.count : 0;
-    // Exponentially-weighted M2 retained for fast-decaying variance estimate
-    // (used in blendedVar / ewmaVar reads elsewhere).
-    const delta = ms - prevEwma;
-    const delta2 = ms - c.ewma;
-    c.m2 = (1 - ALPHA) * (c.m2 + ALPHA * delta * delta2);
-    // EWMA of squared deviation for fast-decaying variance estimate (retained
-    // for blendedVar computation in expectedCostMs).
-    const sqDev = (ms - c.ewma) * (ms - c.ewma);
-    c.ewmaVar = ALPHA * sqDev + (1 - ALPHA) * c.ewmaVar;
-    // Token dimension
-    if (tok > 0) {
-      const prevTokEwma = c.tokEwma;
-      c.tokEwma = ALPHA * tok + (1 - ALPHA) * prevTokEwma;
-      c.tokCount += 1;
-      const tokDelta = tok - prevTokEwma;
-      const tokDelta2 = tok - c.tokEwma;
-      c.tokM2 = (1 - ALPHA) * (c.tokM2 + ALPHA * tokDelta * tokDelta2);
-      c.tokVariance = c.tokCount >= 2 ? c.tokM2 : 0;
-      const tokSqDev = (tok - c.tokEwma) * (tok - c.tokEwma);
-      c.tokEwmaVar = ALPHA * tokSqDev + (1 - ALPHA) * c.tokEwmaVar;
+  // Validate-before-update: residual of each actual against the current expectation.
+  const prior = costByTemplate.get(templateId);
+  if (prior && prior.samples.length > 0) {
+    const live = prior.samples.filter((s) => s.at >= Date.now() - COST_TTL_MS);
+    if (live.length > 0) {
+      pushResidual(costResidualsMs, ms, live.reduce((s, o) => s + o.ms, 0) / live.length);
+      const tokLive = live.filter((s) => s.tokens > 0);
+      if (tok > 0 && tokLive.length > 0) pushResidual(costResidualsTok, tok, tokLive.reduce((s, o) => s + o.tokens, 0) / tokLive.length);
     }
   }
-  // Maintain the raw sample window for pool-median computation and snapshot export.
+  let c = costByTemplate.get(templateId);
+  if (!c) {
+    c = { ewma: ms, n: 1, samples: [{ ms, tokens: tok, at: Date.now() }], ewmaVariance: 0 };
+    costByTemplate.set(templateId, c);
+    return;
+  }
+  const alpha = Math.min(EWMA_ALPHA, 2 / (c.n + 1));
+  const deviation = ms - c.ewma;
+  c.ewmaVariance = alpha * deviation * deviation + (1 - alpha) * c.ewmaVariance;
+  c.ewma = alpha * ms + (1 - alpha) * c.ewma;
+  c.n += 1;
   c.samples.push({ ms, tokens: tok, at: Date.now() });
   const cutoff = Date.now() - COST_TTL_MS;
   while (c.samples.length > 0 && c.samples[0]!.at < cutoff) c.samples.shift();
-  while (c.samples.length > 50) c.samples.shift();
+  if (c.samples.length > COST_SAMPLE_WINDOW) {
+    c.samples.shift();
+  }
 }
 
 let _poolMedianCache: { at: number; ms: number; tokens: number } | null = null;
 function computePoolMedians(): { ms: number; tokens: number } {
-  // Memo within a selection cycle. Median of per-template EWMA means, so one
-  // 180s timeout (or one huge-token drafter run) doesn't drag the pool reference up.
+  // Memo within a selection cycle. Median, not mean, so one 180s timeout (or one
+  // huge-token drafter run) doesn't drag the pool reference up.
   if (_poolMedianCache && Date.now() - _poolMedianCache.at < 1000) return { ms: _poolMedianCache.ms, tokens: _poolMedianCache.tokens };
+  const cutoff = Date.now() - COST_TTL_MS;
   const msMeans: number[] = [];
   const tokMeans: number[] = [];
   for (const c of costByTemplate.values()) {
-    if (c.count >= 1) msMeans.push(c.ewma);
-    if (c.tokCount >= 1) tokMeans.push(c.tokEwma);
+    const live = c.samples.filter((s) => s.at >= cutoff);
+    if (live.length > 0) msMeans.push(live.reduce((s, o) => s + o.ms, 0) / live.length);
+    const tokLive = live.filter((s) => s.tokens > 0);
+    if (tokLive.length > 0) tokMeans.push(tokLive.reduce((s, o) => s + o.tokens, 0) / tokLive.length);
   }
   const median = (a: number[], d: number): number => { if (a.length === 0) return d; a.sort((x, y) => x - y); return a[Math.floor(a.length / 2)]!; };
   const out = { ms: median(msMeans, DEFAULT_COST_MS), tokens: median(tokMeans, 0) };
@@ -2298,56 +2258,57 @@ function computePoolMedians(): { ms: number; tokens: number } {
 function poolMedianCostMs(): number { return computePoolMedians().ms; }
 function poolMedianCostTokens(): number { return computePoolMedians().tokens; }
 
-/** Compute a robust percentile from a sorted array. */
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  if (sorted.length === 1) return sorted[0]!;
-  const idx = p * (sorted.length - 1);
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  if (lo === hi) return sorted[lo]!;
-  return sorted[lo]! + (idx - lo) * (sorted[hi]! - sorted[lo]!);
-}
-
+/**
+ * Returns a robust expected cost for a template.
+ * When the cost distribution is bimodal (high variance relative to mean),
+ * we use the P75 of the recent sample window rather than the raw EWMA mean,
+ * so the prediction errs on the side of the slower mode and reduces residual.
+ */
 function expectedCostMs(templateId: string): number {
   const c = costByTemplate.get(templateId);
-  if (!c || c.count < 2) return Infinity; // cold-start: unknown cost
-  // Use variance-aware estimate: if spread is high (bimodal), use P75 to avoid
-  // underestimating the slow mode; otherwise fall back to EWMA.
-  const samples = c.recentSamples;
-  if (samples && samples.length >= 4) {
-    const sorted = [...samples].sort((a, b) => a - b);
-    const p25 = percentile(sorted, 0.25);
-    const p75 = percentile(sorted, 0.75);
-    const iqr = p75 - p25;
-    const med = percentile(sorted, 0.5);
-    // Coefficient of variation proxy: IQR/median signals bimodality
-    if (med > 0 && iqr / med > 0.5) {
-      // Bimodal/high-variance: use P75 as the representative cost
-      return p75;
-    }
+  if (!c || c.samples.length === 0) return poolMedianCostMs(); // warm-start neutral (partial pooling §4.2)
+  const cutoff = Date.now() - COST_TTL_MS;
+  const live = c.samples.filter((s) => s.at >= cutoff);
+  if (live.length === 0) return poolMedianCostMs();
+  // Coefficient of variation squared: if variance is large relative to mean²
+  // the distribution is likely bimodal — use P75 of the recent window as a
+  // robust high-side estimate that reduces systematic under-prediction on the
+  // slow mode. Require at least 4 live samples so a single outlier can't
+  // immediately flip the estimator.
+  const cv2 = c.ewma > 0 ? c.ewmaVariance / (c.ewma * c.ewma) : 0;
+  if (cv2 > 0.25 && live.length >= 4) {
+    const sorted = live.map((o) => o.ms).sort((a, b) => a - b);
+    const p75idx = Math.floor(sorted.length * 0.75);
+    return sorted[Math.min(p75idx, sorted.length - 1)]!;
   }
-  return c.ewma;
+  const sorted = live.map((o) => o.ms).sort((a, b) => a - b);
+  return sorted[Math.floor(0.75 * (sorted.length - 1))]!;
 }
 function expectedCostTokens(templateId: string): number {
   const c = costByTemplate.get(templateId);
-  if (!c || c.tokCount < 2) return 0;
-  return c.tokEwma;
+  if (!c) return 0;
+  const live = c.samples.filter((s) => s.at >= Date.now() - COST_TTL_MS && s.tokens > 0);
+  if (live.length === 0) return 0;
+  return live.reduce((s, o) => s + o.tokens, 0) / live.length;
 }
 
-// Combined value-of-information cost adjustment. Uses the variance-aware
-// expectedCostMs estimate (P75 for bimodal distributions, EWMA otherwise)
-// as the predicted cost, then computes ratio = actual / predicted.
-// Clamp [0.5, 2.0] preserved as required so cost can neither dominate the
-// exploration bonus nor zero a template.
-function combinedCostAdj(templateId: string, baseCostMs: number): number {
-  const expected = expectedCostMs(templateId);
-  if (!isFinite(expected) || expected <= 0) {
-    return 1.0; // cold-start or degenerate: no adjustment
+// Combined value-of-information cost adjustment across the cost vector. Each present
+// dimension is normalized to its own pool median and averaged (a pool with no token
+// usage → ms-only). sqrt keeps it gentle; clamp [0.5,2.0] so cost can neither
+// dominate the exploration bonus nor zero a template.
+function combinedCostAdj(templateId: string): number {
+  const med = computePoolMedians();
+  const ratios: number[] = [];
+  if (med.ms > 0) ratios.push(expectedCostMs(templateId) / med.ms);
+  if (med.tokens > 0) {
+    const t = expectedCostTokens(templateId);
+    // No token history in a token-using pool → neutral on that axis (ratio 1.0),
+    // not free, so a never-yet-LLM template isn't spuriously over-rewarded.
+    ratios.push(t > 0 ? t / med.tokens : 1.0);
   }
-  const ratio = baseCostMs / expected;
-  // Clamp to [0.5, 2.0] — preserved as required
-  return Math.min(2.0, Math.max(0.5, ratio));
+  if (ratios.length === 0) return 1.0;
+  const rel = ratios.reduce((s, r) => s + r, 0) / ratios.length;
+  return Math.max(0.5, Math.min(2.0, Math.sqrt(1 / Math.max(rel, 1e-6))));
 }
 
 // V28 (2026-06-14): snapshot the selector's reward distribution to a bind-mounted
