@@ -2183,6 +2183,7 @@ interface TemplateCostEntry {
   ewma: number;
   ewmaVar: number;    // running variance (EWMA of squared deviations)
   count: number;
+  n: number;          // total samples observed (unbounded counter for EWMA stability)
   /** Rolling window of recent cost samples for percentile fallback */
   samples: number[];
 }
@@ -2224,9 +2225,12 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
   }
   const alpha = Math.min(EWMA_ALPHA, 2 / (c.n + 1));
   const deviation = ms - c.ewma;
-  // EWMA variance: update after computing deviation from previous mean
-  c.ewmaVar = alpha * deviation * deviation + (1 - alpha) * (c.ewmaVar ?? 0);
-  c.ewma = alpha * ms + (1 - alpha) * c.ewma;
+  const newEwma = alpha * ms + (1 - alpha) * c.ewma;
+  // Welford-style EWMA variance: V_t = (1-alpha)*(V_{t-1} + alpha*diff^2)
+  // Uses deviation from the OLD mean (pre-update) so the squared term captures
+  // the full spread of bimodal distributions (fast tick vs slow LLM chain).
+  c.ewmaVar = (1 - alpha) * ((c.ewmaVar ?? 0) + alpha * deviation * deviation);
+  c.ewma = newEwma;
   c.n += 1;
   c.samples.push({ ms, tokens: tok, at: Date.now() });
   const cutoff = Date.now() - COST_TTL_MS;
@@ -2276,19 +2280,11 @@ function percentile(sorted: number[], p: number): number {
  */
 function expectedCostMs(templateId: string): number {
   const c = costByTemplate.get(templateId);
-  if (!c || c.count < 2) return Infinity; // cold-start — preserve existing behaviour
-
-  // If we have enough samples use the p75 of the ring buffer as a
-  // variance-aware robust estimate, otherwise fall back to mean+1σ.
-  if (c.samples.length >= 4) {
-    const sorted = [...c.samples].map((s) => s.ms).sort((a, b) => a - b);
-    const p75idx = Math.floor(sorted.length * 0.75);
-    return sorted[p75idx]!;
-  }
-
-  // mean + 1 standard-deviation (from EWMA variance)
-  const stdDev = Math.sqrt(c.ewmaVar);
-  return c.ewma + stdDev;
+  if (!c || c.n < 2) return Infinity; // cold-start — preserve existing behaviour
+  // Use mean + stddev to bias toward the slower mode of bimodal distributions.
+  // This prevents systematic under-prediction when a template has fast-hit / slow-timeout modes.
+  const stddev = Math.sqrt(c.ewmaVar);
+  return c.ewma + stddev;
 }
 function expectedCostTokens(templateId: string): number {
   const c = costByTemplate.get(templateId);
