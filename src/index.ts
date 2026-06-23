@@ -2181,11 +2181,9 @@ interface CostSample { ms: number; tokens: number; at: number }
  */
 interface TemplateCostEntry {
   ewma: number;
-  n: number;
+  count: number;
   /** Rolling window of recent cost samples for variance/percentile estimates */
-  samples: CostSample[];
-  /** EWMA of squared deviations from ewma (variance proxy) */
-  ewmaVariance: number;
+  samples: number[];
 }
 const EWMA_ALPHA = 0.2; // smoothing factor: α=0.2 weights last sample ~20%, recent history ~80%
 const costByTemplate = new Map<string, TemplateCostEntry>();
@@ -2202,7 +2200,7 @@ function pushResidual(arr: { rel: number; at: number }[], actual: number, expect
   }
 }
 
-const COST_SAMPLE_WINDOW = 20;
+const COST_SAMPLE_WINDOW = 32;
 
 function recordCostByTemplate(templateId: string, ms: number, tokens: number): void {
   if (!Number.isFinite(ms) || ms < 0) return;
@@ -2231,6 +2229,7 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
   c.samples.push({ ms, tokens: tok, at: Date.now() });
   const cutoff = Date.now() - COST_TTL_MS;
   while (c.samples.length > 0 && c.samples[0]!.at < cutoff) c.samples.shift();
+  // Ring buffer: keep at most COST_SAMPLE_WINDOW recent samples for percentile estimates.
   if (c.samples.length > COST_SAMPLE_WINDOW) {
     c.samples.shift();
   }
@@ -2258,11 +2257,19 @@ function computePoolMedians(): { ms: number; tokens: number } {
 function poolMedianCostMs(): number { return computePoolMedians().ms; }
 function poolMedianCostTokens(): number { return computePoolMedians().tokens; }
 
+function percentile(sorted: number[], p: number): number {
+  const idx = p * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo]!;
+  return sorted[lo]! * (hi - idx) + sorted[hi]! * (idx - lo);
+}
+
 /**
  * Returns a robust expected cost for a template.
  * When the cost distribution is bimodal (high variance relative to mean),
- * we use the P75 of the recent sample window rather than the raw EWMA mean,
- * so the prediction errs on the side of the slower mode and reduces residual.
+ * blends mean toward p75 so predictions account for slow-tail outcomes
+ * rather than systematically under-predicting on the fast mode.
  */
 function expectedCostMs(templateId: string): number {
   const c = costByTemplate.get(templateId);
@@ -2270,19 +2277,14 @@ function expectedCostMs(templateId: string): number {
   const cutoff = Date.now() - COST_TTL_MS;
   const live = c.samples.filter((s) => s.at >= cutoff);
   if (live.length === 0) return poolMedianCostMs();
-  // Coefficient of variation squared: if variance is large relative to mean²
-  // the distribution is likely bimodal — use P75 of the recent window as a
-  // robust high-side estimate that reduces systematic under-prediction on the
-  // slow mode. Require at least 4 live samples so a single outlier can't
-  // immediately flip the estimator.
-  const cv2 = c.ewma > 0 ? c.ewmaVariance / (c.ewma * c.ewma) : 0;
-  if (cv2 > 0.25 && live.length >= 4) {
-    const sorted = live.map((o) => o.ms).sort((a, b) => a - b);
-    const p75idx = Math.floor(sorted.length * 0.75);
-    return sorted[Math.min(p75idx, sorted.length - 1)]!;
-  }
+  if (live.length < 4) return c.ewma;
   const sorted = live.map((o) => o.ms).sort((a, b) => a - b);
-  return sorted[Math.floor(0.75 * (sorted.length - 1))]!;
+  const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
+  const p75 = percentile(sorted, 0.75);
+  // If spread is large (bimodal signal), weight toward p75 to avoid low-ball prediction
+  const spread = percentile(sorted, 0.9) - percentile(sorted, 0.1);
+  const bimodalWeight = Math.min(1, spread / (mean + 1));
+  return mean * (1 - 0.4 * bimodalWeight) + p75 * (0.4 * bimodalWeight);
 }
 function expectedCostTokens(templateId: string): number {
   const c = costByTemplate.get(templateId);
