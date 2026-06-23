@@ -2436,9 +2436,18 @@ function ucbScore(templateId: string, shapeAvail: number): { score: number; reas
   const expCost = expectedCostMs(templateId);
   const expTok = expectedCostTokens(templateId);
   const costAdj = combinedCostAdj(templateId); // V31: combined over the cost vector {ms, tokens}
+  const rawScore = baseScore * costAdj * Math.max(shapeAvail, 1.0) + pipelinePull;
+  // NaN guard (2026-06-23): if costAdj (combinedCostAdj) ever returns NaN, rawScore
+  // is NaN — and the picker `!best || score > best.score` then PINS on it forever:
+  // the NaN candidate becomes best via `!best`, and every later finite score fails
+  // `finite > NaN`, so nothing replaces it. Observed live: the pool reserved
+  // mitosis-tick every ~5s → no_op, starving compose-topology-tick and ALL
+  // productive self-optimization. Fall back to the finite baseScore so a bad cost
+  // estimate can't hijack the selector.
+  const score = Number.isFinite(rawScore) ? rawScore : baseScore;
   return {
-    score: baseScore * costAdj * Math.max(shapeAvail, 1.0) + pipelinePull,
-    reason: `mean=${mean.toFixed(2)} ucb=${explore.toFixed(2)} cost=${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}×${costAdj.toFixed(2)} picks=${picks} shape=${shapeAvail.toFixed(2)} pull=${pipelinePull}`,
+    score,
+    reason: `mean=${mean.toFixed(2)} ucb=${explore.toFixed(2)} cost=${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}×${costAdj.toFixed(2)}${Number.isFinite(rawScore) ? "" : "(NaN→base)"} picks=${picks} shape=${shapeAvail.toFixed(2)} pull=${pipelinePull}`,
   };
 }
 
