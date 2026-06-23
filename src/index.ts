@@ -2181,8 +2181,9 @@ interface CostSample { ms: number; tokens: number; at: number }
  */
 interface TemplateCostEntry {
   ewma: number;
+  ewmaVar: number;    // running variance (EWMA of squared deviations)
   count: number;
-  /** Rolling window of recent cost samples for variance/percentile estimates */
+  /** Rolling window of recent cost samples for percentile fallback */
   samples: number[];
 }
 const EWMA_ALPHA = 0.2; // smoothing factor: α=0.2 weights last sample ~20%, recent history ~80%
@@ -2200,7 +2201,7 @@ function pushResidual(arr: { rel: number; at: number }[], actual: number, expect
   }
 }
 
-const COST_SAMPLE_WINDOW = 32;
+const COST_SAMPLE_WINDOW = 20;
 
 function recordCostByTemplate(templateId: string, ms: number, tokens: number): void {
   if (!Number.isFinite(ms) || ms < 0) return;
@@ -2223,7 +2224,8 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
   }
   const alpha = Math.min(EWMA_ALPHA, 2 / (c.n + 1));
   const deviation = ms - c.ewma;
-  c.ewmaVariance = alpha * deviation * deviation + (1 - alpha) * c.ewmaVariance;
+  // EWMA variance: update after computing deviation from previous mean
+  c.ewmaVar = alpha * deviation * deviation + (1 - alpha) * (c.ewmaVar ?? 0);
   c.ewma = alpha * ms + (1 - alpha) * c.ewma;
   c.n += 1;
   c.samples.push({ ms, tokens: tok, at: Date.now() });
@@ -2266,25 +2268,27 @@ function percentile(sorted: number[], p: number): number {
 }
 
 /**
- * Returns a robust expected cost for a template.
- * When the cost distribution is bimodal (high variance relative to mean),
- * blends mean toward p75 so predictions account for slow-tail outcomes
- * rather than systematically under-predicting on the fast mode.
+ * Returns a robust upper-percentile cost estimate for the template.
+ * For bimodal distributions (fast hit / slow timeout) the plain EWMA
+ * under-predicts the slow mode.  We add one standard-deviation (derived
+ * from the EWMA variance) so the estimate covers the slow tail while
+ * still reacting quickly when costs improve.  Cold-start returns Infinity.
  */
 function expectedCostMs(templateId: string): number {
   const c = costByTemplate.get(templateId);
-  if (!c || c.samples.length === 0) return poolMedianCostMs(); // warm-start neutral (partial pooling §4.2)
-  const cutoff = Date.now() - COST_TTL_MS;
-  const live = c.samples.filter((s) => s.at >= cutoff);
-  if (live.length === 0) return poolMedianCostMs();
-  if (live.length < 4) return c.ewma;
-  const sorted = live.map((o) => o.ms).sort((a, b) => a - b);
-  const mean = sorted.reduce((s, v) => s + v, 0) / sorted.length;
-  const p75 = percentile(sorted, 0.75);
-  // If spread is large (bimodal signal), weight toward p75 to avoid low-ball prediction
-  const spread = percentile(sorted, 0.9) - percentile(sorted, 0.1);
-  const bimodalWeight = Math.min(1, spread / (mean + 1));
-  return mean * (1 - 0.4 * bimodalWeight) + p75 * (0.4 * bimodalWeight);
+  if (!c || c.count < 2) return Infinity; // cold-start — preserve existing behaviour
+
+  // If we have enough samples use the p75 of the ring buffer as a
+  // variance-aware robust estimate, otherwise fall back to mean+1σ.
+  if (c.samples.length >= 4) {
+    const sorted = [...c.samples].map((s) => s.ms).sort((a, b) => a - b);
+    const p75idx = Math.floor(sorted.length * 0.75);
+    return sorted[p75idx]!;
+  }
+
+  // mean + 1 standard-deviation (from EWMA variance)
+  const stdDev = Math.sqrt(c.ewmaVar);
+  return c.ewma + stdDev;
 }
 function expectedCostTokens(templateId: string): number {
   const c = costByTemplate.get(templateId);
