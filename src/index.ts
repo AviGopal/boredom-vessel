@@ -1803,6 +1803,119 @@ interface SubstrateState {
   refreshedAt: number;
 }
 
+// ── C9: unified priority-weighted selection (2026-06-24) ───────────────────
+// The pool's continuous selection (pickByShapeAvailability → ucbScore) is
+// otherwise PRIORITY-BLIND: open substrateGaps carry severity / priority_hint /
+// category and health/operator signals carry urgency, but the ranker only saw
+// UCB1 + shape-availability + cost. So a high-severity gap or a health-repair
+// tick could only be selected if the rotation happened to land on it — urgency
+// never PROMOTED a candidate, and cost-gating only ever DEMOTES under load.
+//
+// Fix (additive, behavior-preserving when nothing is urgent): refreshSubstrateState
+// derives a priority weight per OUTPUT SHAPE from the same gaps.json source it
+// already reads, plus health-report colour. A candidate template that produces a
+// shape demanded by an urgent gap (or is a health-repair tick) gets weight > 1;
+// ucbScore multiplies its score by that weight, so the urgent drain/repair tick
+// outscores routine ticks and is selected first. With no severity metadata the
+// weight defaults to 1 — selection is then byte-for-byte the prior behavior.
+//
+// Weight scale [1..N]: high-urgency → PRIORITY_WEIGHT_HIGH, medium → _MEDIUM,
+// routine → 1. Tolerant of missing fields (→ 1).
+const PRIORITY_WEIGHT_HIGH = parseFloat(process.env["BOREDOM_PRIORITY_WEIGHT_HIGH"] ?? "3.0");
+const PRIORITY_WEIGHT_MEDIUM = parseFloat(process.env["BOREDOM_PRIORITY_WEIGHT_MEDIUM"] ?? "1.8");
+
+// Gap categories that represent urgent operational / safety / operator-facing
+// work — these PROMOTE their producer ticks regardless of declared severity.
+const HIGH_PRIORITY_GAP_CATEGORIES = new Set<string>([
+  "operator_goal_unservable",
+  "service_failure",
+  "obsidian_unpredictable_behavior",
+  "obsidian_observation_channel_polluted",
+  "obsidian_assists_ignored",
+  "goal_host_inconsistent_direction",
+  "safety_breach",
+  "operational_health",
+]);
+const MEDIUM_PRIORITY_GAP_CATEGORIES = new Set<string>([
+  "cost_constraint",
+  "typecheck_error",
+  "novel_failure_mode_detected",
+  "architectural_pattern",
+  "wasted_cycle",
+]);
+
+// Output-shape → priority weight, refreshed each refreshSubstrateState. Empty
+// (all-weight-1) means no urgency and selection is unchanged.
+let priorityWeightByShape = new Map<string, number>();
+// A "urgent backlog present" floor applied ONLY to gap-draining / repair ticks
+// (which close gaps but don't declare the gap's expected_output_shapes as their
+// own output) when an urgent gap is open. = max gap weight over open gaps; 1.0
+// when nothing urgent. Routine ticks never receive this floor, so the relative
+// ordering only shifts to PROMOTE drainers/repair, never flattens.
+let priorityFloorWeight = 1.0;
+
+// Tag / id markers identifying a candidate as a gap-draining or repair tick.
+// These are the producers that CLOSE urgent backlog (their own output_shapes
+// don't carry the gap's expected shape), so the open-gap floor applies to them.
+const GAP_DRAIN_TAG_MARKERS = ["intentgapdrain", "phasebridge"];
+const GAP_DRAIN_ID_MARKERS = [
+  "drain-pending-substrate-gaps",
+  "draft-gap-closing-activity",
+  "gap-to-scenario-bridge",
+  "ingest-audit-findings",
+  "dispatch-latest-auto-draft",
+  "apply-proposal-as-patch",
+  "self-operational-health",
+  "operational-health",
+];
+
+function isGapDrainCandidate(templateId: string, tags: string[]): boolean {
+  if (tags.some((t) => GAP_DRAIN_TAG_MARKERS.includes(t))) return true;
+  return GAP_DRAIN_ID_MARKERS.some((m) => templateId.includes(m));
+}
+
+function gapPriorityWeight(g: {
+  status?: string;
+  severity?: string | null;
+  priority_hint?: string | null;
+  category?: string | null;
+}): number {
+  // explicit severity / priority_hint wins
+  const sev = (g.severity ?? "").toString().toLowerCase();
+  const hint = (g.priority_hint ?? "").toString().toLowerCase();
+  if (sev === "high" || sev === "critical" || hint === "high" || hint === "critical") {
+    return PRIORITY_WEIGHT_HIGH;
+  }
+  if (sev === "medium" || hint === "medium") return PRIORITY_WEIGHT_MEDIUM;
+  // otherwise derive from category
+  const cat = (g.category ?? "").toString();
+  if (HIGH_PRIORITY_GAP_CATEGORIES.has(cat)) return PRIORITY_WEIGHT_HIGH;
+  if (MEDIUM_PRIORITY_GAP_CATEGORIES.has(cat)) return PRIORITY_WEIGHT_MEDIUM;
+  return 1.0;
+}
+
+// Best (max) priority weight for a candidate, from its output shapes (a
+// candidate that PRODUCES a shape some urgent gap demands) plus the gap-drain
+// floor (a candidate that CLOSES urgent backlog). Defaults to 1.0
+// (behavior-preserving) when nothing urgent.
+function priorityWeightForCandidate(
+  templateId: string,
+  outputShapes: string[],
+  tags: string[],
+): number {
+  let w = 1.0;
+  // Shape-demand promotion: this candidate produces a shape an urgent gap wants.
+  for (const s of outputShapes) {
+    const sw = priorityWeightByShape.get(s);
+    if (sw !== undefined && sw > w) w = sw;
+  }
+  // Drain/repair promotion: this candidate closes urgent backlog.
+  if (priorityFloorWeight > w && isGapDrainCandidate(templateId, tags)) {
+    w = priorityFloorWeight;
+  }
+  return w > 0 ? w : 1.0;
+}
+
 interface InFlightEntry {
   goal_idx: number;
   dispatch_id: string;
@@ -1872,19 +1985,63 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
     const proposalDir = await fs.readdir("/workspace/proposals").catch(() => [] as string[]);
     pendingProposalCount = proposalDir.filter((n) => n.endsWith(".json") && !n.startsWith("applied-")).length;
   } catch { /* ignore */ }
+  // C9: rebuild the priority map fresh each refresh (urgency is transient).
+  const nextPriorityByShape = new Map<string, number>();
+  let nextFloor = 1.0;
   try {
     const gapsRaw = await fs.readFile("/workspace/gaps.json", "utf8").catch(() => "");
     if (gapsRaw) {
-      const parsed = JSON.parse(gapsRaw) as { gaps?: Array<{ status?: string; scenario_id?: string }> };
+      const parsed = JSON.parse(gapsRaw) as {
+        gaps?: Array<{
+          status?: string;
+          scenario_id?: string;
+          severity?: string | null;
+          priority_hint?: string | null;
+          category?: string | null;
+          expected_output_shapes?: string[];
+        }>;
+      };
       const gaps = parsed.gaps ?? [];
-      openGapCount = gaps.filter((g) => g.status !== "closed" && g.status !== "resolved").length;
+      const isOpen = (g: { status?: string }) => g.status !== "closed" && g.status !== "resolved" && g.status !== "rejected";
+      openGapCount = gaps.filter(isOpen).length;
       const scenarios = await fs.readdir(SCENARIOS_DIR).catch(() => [] as string[]);
       const scenarioIds = new Set(scenarios.filter((n) => n.endsWith(".json")).map((n) => n.replace(/\.json$/, "")));
       unbridgedScenarioGapCount = gaps.filter(
         (g) => g.status !== "closed" && (!g.scenario_id || !scenarioIds.has(g.scenario_id)),
       ).length;
+      // C9: derive per-shape priority weights + an urgent-backlog floor from the
+      // open gaps. A high-severity / high-priority_hint / urgent-category gap
+      // promotes (a) any candidate producing one of its expected_output_shapes
+      // and (b) gap-draining ticks via the floor. Gaps with no urgency → weight
+      // 1, contributing nothing (behavior-preserving).
+      for (const g of gaps) {
+        if (!isOpen(g)) continue;
+        const w = gapPriorityWeight(g);
+        if (w <= 1.0) continue;
+        if (w > nextFloor) nextFloor = w;
+        for (const s of g.expected_output_shapes ?? []) {
+          const cur = nextPriorityByShape.get(s) ?? 1.0;
+          if (w > cur) nextPriorityByShape.set(s, w);
+        }
+      }
     }
   } catch { /* ignore */ }
+  // C9: a red/yellow operational-health report promotes repair ticks. Read from
+  // the same workspace the gaps come from; tolerate absence (→ no promotion).
+  try {
+    const healthRaw = await fs.readFile("/workspace/operational-health.json", "utf8").catch(() => "");
+    if (healthRaw) {
+      const h = JSON.parse(healthRaw) as { status?: string; color?: string; level?: string };
+      const sig = (h.status ?? h.color ?? h.level ?? "").toString().toLowerCase();
+      if (sig === "red" || sig === "critical" || sig === "unhealthy") {
+        if (PRIORITY_WEIGHT_HIGH > nextFloor) nextFloor = PRIORITY_WEIGHT_HIGH;
+      } else if (sig === "yellow" || sig === "degraded" || sig === "warning") {
+        if (PRIORITY_WEIGHT_MEDIUM > nextFloor) nextFloor = PRIORITY_WEIGHT_MEDIUM;
+      }
+    }
+  } catch { /* ignore */ }
+  priorityWeightByShape = nextPriorityByShape;
+  priorityFloorWeight = nextFloor;
   try {
     const res = await fetch(`${ACTIVITY_API_ENDPOINT}/v2/activities/templates?limit=60`, {
       headers: authHeaders(),
@@ -2459,13 +2616,22 @@ function templateMomentum(templateId: string): number {
 // the natural pull boost.
 let totalPicksV24f = 0;
 
-function ucbScore(templateId: string, shapeAvail: number): { score: number; reason: string } {
+// C9 (2026-06-24): `priorityWeight` (default 1.0) is a multiplicative urgency
+// term folded into the FINAL score, so an urgent gap's producer / drain tick or
+// a health-repair tick outscores routine ticks. weight=1 ⇒ score is identical
+// to the pre-C9 value (behavior-preserving when nothing is urgent).
+function ucbScore(
+  templateId: string,
+  shapeAvail: number,
+  priorityWeight = 1.0,
+): { score: number; reason: string } {
+  const pw = Number.isFinite(priorityWeight) && priorityWeight > 0 ? priorityWeight : 1.0;
   const m = momentumByTemplate.get(templateId);
   if (m) pruneStaleOutcomes(m); // V27: ensure stale outcomes don't poison the score
   const picks = m?.outcomes.length ?? 0;
   if (picks === 0) {
     // Unsampled (or fully-decayed) templates always win until they've been tried once.
-    return { score: Number.POSITIVE_INFINITY, reason: `ucb=∞ picks=0 shape=${shapeAvail.toFixed(2)}` };
+    return { score: Number.POSITIVE_INFINITY, reason: `ucb=∞ picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""}` };
   }
   // V28: mean = average information-yield reward (not success fraction), so UCB
   // exploits detectors that actually produce findings.
@@ -2496,10 +2662,15 @@ function ucbScore(templateId: string, shapeAvail: number): { score: number; reas
   // mitosis-tick every ~5s → no_op, starving compose-topology-tick and ALL
   // productive self-optimization. Fall back to the finite baseScore so a bad cost
   // estimate can't hijack the selector.
-  const score = Number.isFinite(rawScore) ? rawScore : baseScore;
+  const finiteScore = Number.isFinite(rawScore) ? rawScore : baseScore;
+  // C9: priority weight is the OUTERMOST multiplier — it scales whatever the
+  // cost/shape-availability machinery produced, so urgency preempts routine
+  // ticks without disturbing the relative ordering among equal-priority ticks.
+  // pw=1.0 ⇒ score === finiteScore (pre-C9 behavior).
+  const score = finiteScore * pw;
   return {
     score,
-    reason: `mean=${mean.toFixed(2)} ucb=${explore.toFixed(2)} cost=${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}×${costAdj.toFixed(2)}${Number.isFinite(rawScore) ? "" : "(NaN→base)"} picks=${picks} shape=${shapeAvail.toFixed(2)} pull=${pipelinePull}`,
+    reason: `mean=${mean.toFixed(2)} ucb=${explore.toFixed(2)} cost=${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}×${costAdj.toFixed(2)}${Number.isFinite(rawScore) ? "" : "(NaN→base)"} picks=${picks} shape=${shapeAvail.toFixed(2)} pull=${pipelinePull}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""}`,
   };
 }
 
@@ -2531,7 +2702,11 @@ async function pickByShapeAvailability(
       else if (ratio > 0) shapeAvail = 0.5 + ratio;
       else shapeAvail = 0.3;
     }
-    const ucb = ucbScore(c.template_id, shapeAvail);
+    // C9: urgency multiplier — derived from open-gap severity / priority_hint /
+    // category (→ shape-demand or gap-drain floor) + operational-health colour.
+    // Defaults to 1.0 when nothing is urgent (selection unchanged).
+    const priorityWeight = priorityWeightForCandidate(c.template_id, c.output_shapes, c.tags);
+    const ucb = ucbScore(c.template_id, shapeAvail, priorityWeight);
     if (!best || ucb.score > best.score) {
       best = {
         template_id: c.template_id,
