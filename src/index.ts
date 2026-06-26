@@ -695,7 +695,7 @@ function extraVariablesForGoal(goalIdx: number): Record<string, unknown> {
       base_branch: "dev",
       commit_message: `substrate-authored: backend snapshot ${ts}\n\nSubstrate-Authored-By: boredom-vessel:backend-snapshot-to-git`,
       owner: "AviGopal",
-      repo: "metabob-devbob",
+      repo: process.env.SUBSTRATE_SUPER_REPO_NAME ?? "substrate",
       pr_title: `substrate-authored: backend snapshot ${ts}`,
       pr_body:
         `Backend snapshot manifest authored by the substrate.\n\n` +
