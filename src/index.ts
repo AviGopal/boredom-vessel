@@ -2339,10 +2339,10 @@ interface CostSample { ms: number; tokens: number; at: number }
 interface TemplateCostEntry {
   ewma: number;
   ewmaVar: number;    // running variance (EWMA of squared deviations)
-  count: number;
+  count?: number;
   n: number;          // total samples observed (unbounded counter for EWMA stability)
   /** Rolling window of recent cost samples for percentile fallback */
-  samples: number[];
+  samples: CostSample[];
 }
 const EWMA_ALPHA = 0.2; // smoothing factor: α=0.2 weights last sample ~20%, recent history ~80%
 const costByTemplate = new Map<string, TemplateCostEntry>();
@@ -2376,7 +2376,7 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
   }
   let c = costByTemplate.get(templateId);
   if (!c) {
-    c = { ewma: ms, n: 1, samples: [{ ms, tokens: tok, at: Date.now() }], ewmaVariance: 0 };
+    c = { ewma: ms, n: 1, samples: [{ ms, tokens: tok, at: Date.now() }], ewmaVar: 0 };
     costByTemplate.set(templateId, c);
     return;
   }
@@ -2726,7 +2726,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
   // legitimately expensive) records cost too. Validates against expectedCostMs.
   const costT0 = Date.now();
   try {
-    const res = await fetch(`http://127.0.0.1:8280/dispatch`, {
+    const res = await fetch(`${LIGHT_DISPATCH_ENDPOINT}/dispatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
       body: JSON.stringify({ template_id: templateId, variables: {} }),
