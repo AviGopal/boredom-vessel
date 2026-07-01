@@ -1854,6 +1854,13 @@ let priorityWeightByShape = new Map<string, number>();
 // ordering only shifts to PROMOTE drainers/repair, never flattens.
 let priorityFloorWeight = 1.0;
 
+// Seam 2b actuation: selectionEntropy -> selector exploration injection.
+// When the selectionEntropy producer reports the selection distribution has
+// COLLAPSED (posteriors over-concentrated / buckets degenerate), we scale the
+// UCB exploration term up so the picker biases toward under-sampled candidates
+// and re-broadens. 1.0 = no boost (behavior-preserving when not collapsed).
+let explorationBoost = 1.0;
+
 // Tag / id markers identifying a candidate as a gap-draining or repair tick.
 // These are the producers that CLOSE urgent backlog (their own output_shapes
 // don't carry the gap's expected shape), so the open-gap floor applies to them.
@@ -2042,6 +2049,24 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
   } catch { /* ignore */ }
   priorityWeightByShape = nextPriorityByShape;
   priorityFloorWeight = nextFloor;
+  // Seam 2b: read the selectionEntropy producer's collapsed flag. When the
+  // selection distribution has collapsed, raise explorationBoost so ucbScore
+  // widens the UCB explore term toward under-sampled candidates; otherwise reset
+  // it to 1.0 (behavior-preserving). Best-effort — dev-vessel unreachable or a
+  // malformed body leaves the previous boost untouched.
+  try {
+    const seRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { pointer: { type: "selectionEntropy" } } }),
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (seRes.ok) {
+      const seData = (await seRes.json()) as { body?: { collapsed?: unknown } };
+      const collapsed = seData?.body?.collapsed === true;
+      explorationBoost = collapsed ? 2.0 : 1.0;
+    }
+  } catch { /* ignore — leave explorationBoost as-is */ }
   try {
     const res = await fetch(`${ACTIVITY_API_ENDPOINT}/v2/activities/templates?limit=60`, {
       headers: authHeaders(),
@@ -2636,7 +2661,11 @@ function ucbScore(
   // V28: mean = average information-yield reward (not success fraction), so UCB
   // exploits detectors that actually produce findings.
   const mean = m!.outcomes.reduce((s, o) => s + o.reward, 0) / picks;
-  const explore = 1.4 * Math.sqrt(2 * Math.log(Math.max(1, totalPicksV24f)) / picks);
+  // Seam 2b: scale the exploration term by the module-level explorationBoost.
+  // explorationBoost === 1.0 (the default / not-collapsed state) leaves this
+  // identical to the pre-seam value, so this is behavior-preserving unless the
+  // selectionEntropy producer has flagged the selection distribution collapsed.
+  const explore = 1.4 * explorationBoost * Math.sqrt(2 * Math.log(Math.max(1, totalPicksV24f)) / picks);
   const baseScore = mean + explore;
   // V27 (2026-06-09): pipeline-pull is ADDITIVE when ratio=1.0 (all inputs fresh)
   // so a chain template with low mean still gets prioritised when its upstream
