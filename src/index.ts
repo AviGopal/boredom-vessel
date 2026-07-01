@@ -1861,6 +1861,40 @@ let priorityFloorWeight = 1.0;
 // and re-broadens. 1.0 = no boost (behavior-preserving when not collapsed).
 let explorationBoost = 1.0;
 
+// P3 (2026-07-01): shape-driven mode-priority controller consumption.
+// refreshSubstrateState reads the dev-vessel `learningMode` producer (best-effort,
+// fail-open) which emits an EMERGENT work-mode read-out from the shape lattice:
+//   emphasize_mode ∈ {develop, collect, reflect}
+//   per_shape_boost: {<shape>: <weight>}  — necessary-but-unavailable shapes
+//   mode_weights:    {develop, collect, reflect} — emphasized mode weighted up
+// We fold per_shape_boost into the SAME priorityWeightByShape map the gap-demand
+// promotion uses (max wins), and apply the emphasized mode's weight to candidates
+// classified into that mode via MODE_BY_GOAL. When learningMode is absent every
+// weight defaults to 1.0 → selection is byte-for-byte the pre-P3 behavior.
+type LearningModeName = "develop" | "collect" | "reflect";
+let learningModeEmphasis: LearningModeName | null = null;
+let modeWeightByMode = new Map<LearningModeName, number>();
+
+// MODE_BY_GOAL: classify a candidate into a work-mode from its template id / tags,
+// reusing the goal-text category families:
+//   authoring / compose  → develop
+//   probe / scan / observe → collect
+//   audit / health / reconcile → reflect
+// Returns null when the candidate matches no family (→ no mode weight applied).
+const MODE_DEVELOP_MARKERS = ["author", "compose", "draft", "mint", "create", "feature", "variant", "bridge", "scaffold"];
+const MODE_COLLECT_MARKERS = ["probe", "scan", "observe", "measure", "coverage", "snapshot", "discover", "explore", "sample"];
+const MODE_REFLECT_MARKERS = ["audit", "health", "reconcile", "report", "completeness", "consistency", "reflect", "reach-gate", "review"];
+
+function candidateMode(templateId: string, tags: string[]): LearningModeName | null {
+  const hay = `${templateId} ${tags.join(" ")}`.toLowerCase();
+  const has = (markers: string[]) => markers.some((m) => hay.includes(m));
+  // reflect is the most specific family; check it first, then develop, then collect.
+  if (has(MODE_REFLECT_MARKERS)) return "reflect";
+  if (has(MODE_DEVELOP_MARKERS)) return "develop";
+  if (has(MODE_COLLECT_MARKERS)) return "collect";
+  return null;
+}
+
 // Tag / id markers identifying a candidate as a gap-draining or repair tick.
 // These are the producers that CLOSE urgent backlog (their own output_shapes
 // don't carry the gap's expected shape), so the open-gap floor applies to them.
@@ -1919,6 +1953,17 @@ function priorityWeightForCandidate(
   // Drain/repair promotion: this candidate closes urgent backlog.
   if (priorityFloorWeight > w && isGapDrainCandidate(templateId, tags)) {
     w = priorityFloorWeight;
+  }
+  // P3: mode-emphasis promotion. If the shape-lattice controller emphasizes a
+  // work mode and this candidate is classified into that mode, apply the mode
+  // weight (max wins, so it composes with gap-demand / drain promotion without
+  // flattening them). learningModeEmphasis === null (producer absent) → no-op.
+  if (learningModeEmphasis) {
+    const mode = candidateMode(templateId, tags);
+    if (mode === learningModeEmphasis) {
+      const mw = modeWeightByMode.get(mode) ?? 1.0;
+      if (mw > w) w = mw;
+    }
   }
   return w > 0 ? w : 1.0;
 }
@@ -2067,6 +2112,63 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
       explorationBoost = collapsed ? 2.0 : 1.0;
     }
   } catch { /* ignore — leave explorationBoost as-is */ }
+  // P3: read the learningMode producer (shape-driven mode-priority controller).
+  // Fold per_shape_boost into priorityWeightByShape (max wins, composes with the
+  // gap-demand promotion above) and cache the emphasized mode + mode weights for
+  // priorityWeightForCandidate. Best-effort / fail-open: an unreachable producer
+  // or malformed body clears the mode state → weights default to 1.0 (pre-P3).
+  try {
+    const lmRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { pointer: { type: "learningMode" } } }),
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (lmRes.ok) {
+      const lm = (await lmRes.json()) as {
+        body?: {
+          emphasize_mode?: unknown;
+          per_shape_boost?: Record<string, unknown>;
+          mode_weights?: Record<string, unknown>;
+          driver?: unknown;
+        };
+      };
+      const body = lm?.body;
+      const emph = body?.emphasize_mode;
+      if (emph === "develop" || emph === "collect" || emph === "reflect") {
+        learningModeEmphasis = emph;
+      } else {
+        learningModeEmphasis = null;
+      }
+      // Fold per_shape_boost into the priority map (max wins).
+      const psb = body?.per_shape_boost;
+      if (psb && typeof psb === "object") {
+        for (const [shape, raw] of Object.entries(psb)) {
+          const wv = Number(raw);
+          if (!Number.isFinite(wv) || wv <= 1.0) continue;
+          const cur = priorityWeightByShape.get(shape) ?? 1.0;
+          if (wv > cur) priorityWeightByShape.set(shape, wv);
+        }
+      }
+      // Cache mode weights.
+      const nextModeWeights = new Map<LearningModeName, number>();
+      const mw = body?.mode_weights;
+      if (mw && typeof mw === "object") {
+        for (const m of ["develop", "collect", "reflect"] as const) {
+          const wv = Number((mw as Record<string, unknown>)[m]);
+          if (Number.isFinite(wv) && wv > 0) nextModeWeights.set(m, wv);
+        }
+      }
+      modeWeightByMode = nextModeWeights;
+      if (learningModeEmphasis) {
+        console.error(
+          `[boredom-vessel] learningMode read: emphasize=${learningModeEmphasis} ` +
+          `weight=${(modeWeightByMode.get(learningModeEmphasis) ?? 1.0).toFixed(2)} ` +
+          `driver=${String(body?.driver ?? "?")} shape_boosts=${Object.keys(psb ?? {}).length}`,
+        );
+      }
+    }
+  } catch { /* ignore — leave mode state as-is (fail open) */ }
   try {
     const res = await fetch(`${ACTIVITY_API_ENDPOINT}/v2/activities/templates?limit=60`, {
       headers: authHeaders(),
