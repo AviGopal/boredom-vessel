@@ -184,6 +184,36 @@ async function recordLoadAttribution(ctx: AttributionContext): Promise<void> {
 // to bypass Thompson Sampling entirely. expected_output_shapes is a soft re-sort boost, not a hard
 // filter — high-alpha templates (harness-run-matrix α=18, substrate-health-tick α=25) would dominate
 // without direct template routing. goal[4] is open-ended and lets Thompson choose freely.
+function sampleExternalGoal(tick: number): string | null {
+  try {
+    const root = process.env.SUBSTRATE_ROOT ?? "";
+    const filePath = `${root}/validation/generated/rolling-pool.json`;
+    const { readFileSync } = require("node:fs") as typeof import("node:fs");
+    const raw = readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, Array<{ goal?: string; prompt?: string; text?: string } | string>>;
+    const weeks = Object.values(parsed);
+    const flat: string[] = [];
+    for (const week of weeks) {
+      for (const entry of week) {
+        if (typeof entry === "string") {
+          flat.push(entry);
+        } else {
+          const text = entry.goal ?? entry.prompt ?? entry.text;
+          if (text !== undefined) {
+            flat.push(text);
+          } else {
+            flat.push(String(entry));
+          }
+        }
+      }
+    }
+    if (flat.length === 0) return null;
+    return flat[tick % flat.length] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const AUTONOMOUS_GOALS: readonly string[] = [
   // topology / coverage — explicit template names + output shapes to bypass high-alpha template bias
   "run the coverage-tick activity to measure substrate topology coverage and emit a coverageReport",
@@ -1575,7 +1605,10 @@ async function main(): Promise<void> {
     );
   }
 
-  const goal = AUTONOMOUS_GOALS[goalIdx]!;
+  const everyN = parseInt(process.env.EXTERNAL_DEMAND_EVERY ?? "5", 10);
+        const externalGoal = (everyN > 0 && goalIdx % everyN === 0) ? sampleExternalGoal(goalIdx) : null;
+        const goal = externalGoal ?? AUTONOMOUS_GOALS[goalIdx]!;
+        if (externalGoal) console.log(`[boredom-vessel] EXTERNAL-DEMAND slot: dispatching pool goal instead of rotation[${goalIdx}]`);
   // goal[9]: dynamic target — pick the top executable proposed gap-closing template at runtime.
   // This closes the author→execute→promote loop without hardcoding a specific template ID.
   let targetTemplateId = AUTONOMOUS_GOAL_TARGET_TEMPLATES[goalIdx];
