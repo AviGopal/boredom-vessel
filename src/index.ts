@@ -965,12 +965,19 @@ const COST_RANK: Record<GoalCost, number> = { cheap: 0, moderate: 1, expensive: 
  * cheap-tier full of pending work and load_anomaly_severe), fall back to
  * goal[0] (coverage-tick) which is the cheapest always-safe activity.
  */
+// Retired goals: kept in the positional arrays (indices are load-bearing for
+// Thompson cells + cost tiers) but excluded from BOTH selection paths.
+// goal[16] concept-usage-backfill retired 2026-07-03: its synthetic
+// autonomous_backfill ticks inflated concept-db usage counts so relevance
+// measured write cadence, not consultation.
+const RETIRED_GOAL_IDXS: ReadonlySet<number> = new Set([16]);
 function selectGoalForLoad(startIdx: number, maxCost: GoalCost): number {
   const budgetRank = COST_RANK[maxCost];
   const n = AUTONOMOUS_GOALS.length;
   for (let offset = 0; offset < n; offset++) {
     const candidateIdx = (startIdx + offset) % n;
     const cost = AUTONOMOUS_GOAL_COSTS[candidateIdx] ?? "expensive";
+    if (RETIRED_GOAL_IDXS.has(candidateIdx)) continue;
     if (COST_RANK[cost] <= budgetRank) return candidateIdx;
   }
   // Defensive fallback — should be unreachable since goal[0] is cheap.
@@ -1117,6 +1124,7 @@ async function selectGoalForLoadConditioned(
   for (let offset = 0; offset < n; offset++) {
     const idx = (startIdx + offset) % n;
     const cost = AUTONOMOUS_GOAL_COSTS[idx] ?? "expensive";
+    if (RETIRED_GOAL_IDXS.has(idx)) continue;
     if (COST_RANK[cost] <= budgetRank) eligible.push(idx);
   }
   if (eligible.length === 0) return { goalIdx: rrPick, mode: "round_robin", signature, cellsExamined: 0 };
