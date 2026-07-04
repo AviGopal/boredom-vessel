@@ -428,6 +428,10 @@ const AUTONOMOUS_GOALS: readonly string[] = [
   // unlocks the native generative frontier. PRIMARY driver; the systemd compose-teacher
   // timer is now just a fallback. Exploration rate scales with sample throughput.
   "run compose-topology-tick to explore the capability topology — find a reliably-succeeding chainable pair, author a composite that chains them, and dispatch it to form an organic composition edge that raises the spectral-gap headroom",
+  // goal[50] — sf-coverage-replay-tick. Re-executes one goal_execution_path that has
+  // sf_coverage but lacks live psi evidence, so transfer coverage grows during idle
+  // time without an operator session. Deterministic single-resolver tick; cheap tier.
+  "re-execute one goal_execution_path that has sf_coverage but lacks live psi evidence, so transfer coverage grows without an operator session",
   // NOTE (2026-06-13): obsidian operation is deliberately NOT a core-loop goal.
   // Obsidian is an external app that may be disconnected; forcing it into the
   // self-optimization rotation would pollute the core loop with availability-
