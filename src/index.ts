@@ -223,6 +223,7 @@ const AUTONOMOUS_GOALS: readonly string[] = [
   // which activities to run from its own diagnosis, not operator judgment.
   "run the close-health-gap activity to identify and dispatch the template most needed to close the confidence gap",
   "run the probe-reachable-unlearned activity to find templates with zero execution traces and emit a reachableUnlearnedReport",
+  "run the pull_cutover activity for vessel development-vessel to converge it to the latest origin/dev",
   "run the harness-check-scenario activity to validate a failure-mode scenario from the harness matrix",
   // gap-closing / self-healing
   "identify shapes in the execution graph that have no known producer and escalate the most critical one",
