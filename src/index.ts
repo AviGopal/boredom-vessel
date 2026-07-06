@@ -434,6 +434,7 @@ const AUTONOMOUS_GOALS: readonly string[] = [
   // time without an operator session. Deterministic single-resolver tick; cheap tier.
   "re-execute one goal_execution_path that has sf_coverage but lacks live psi evidence, so transfer coverage grows without an operator session",
   "run code_locality_mining_tick to refresh the code-locality index from recent compose reports and produce a codeLocalityIndex, so the shadow-mode code_locality resolver can predict against recurring edit families without an operator session",
+  "run the vessel-exercise-tick activity to enumerate connected vessels from the discovery registry, probe the stalest ones, and emit a vesselExerciseReport so no connected vessel goes unexercised",
   // NOTE (2026-06-13): obsidian operation is deliberately NOT a core-loop goal.
   // Obsidian is an external app that may be disconnected; forcing it into the
   // self-optimization rotation would pollute the core loop with availability-
@@ -575,6 +576,9 @@ const AUTONOMOUS_GOAL_TARGET_TEMPLATES: readonly (string | undefined)[] = [
   // goal[49] — compose-topology-tick: explicit target so the goal routes deterministically
   // to the composition resolver (bypasses Thompson — the goal text is novel).
   "development-vessel:compose-topology-tick",
+  // goal[50] — vessel-exercise-tick (2026-07-06): registry-driven connected-set exercise
+  // coverage. Explicit target: staleness-keyed probing must not be LLM-misrouted.
+  "development-vessel:vessel-exercise-tick",
 ];
 
 /**
