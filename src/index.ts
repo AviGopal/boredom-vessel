@@ -433,6 +433,7 @@ const AUTONOMOUS_GOALS: readonly string[] = [
   // sf_coverage but lacks live psi evidence, so transfer coverage grows during idle
   // time without an operator session. Deterministic single-resolver tick; cheap tier.
   "re-execute one goal_execution_path that has sf_coverage but lacks live psi evidence, so transfer coverage grows without an operator session",
+  "run code_locality_mining_tick to refresh the code-locality index from recent compose reports and produce a codeLocalityIndex, so the shadow-mode code_locality resolver can predict against recurring edit families without an operator session",
   // NOTE (2026-06-13): obsidian operation is deliberately NOT a core-loop goal.
   // Obsidian is an external app that may be disconnected; forcing it into the
   // self-optimization rotation would pollute the core loop with availability-
