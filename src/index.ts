@@ -576,7 +576,10 @@ const AUTONOMOUS_GOAL_TARGET_TEMPLATES: readonly (string | undefined)[] = [
   // goal[49] — compose-topology-tick: explicit target so the goal routes deterministically
   // to the composition resolver (bypasses Thompson — the goal text is novel).
   "development-vessel:compose-topology-tick",
-  // goal[50] — vessel-exercise-tick (2026-07-06): registry-driven connected-set exercise
+  undefined,                                       // goal[50] — open-ended, no explicit target
+  undefined,                                       // goal[51] — open-ended, no explicit target
+  undefined,                                       // goal[52] — open-ended, no explicit target
+  // goal[53] — vessel-exercise-tick (2026-07-06): registry-driven connected-set exercise
   // coverage. Explicit target: staleness-keyed probing must not be LLM-misrouted.
   "development-vessel:vessel-exercise-tick",
 ];
