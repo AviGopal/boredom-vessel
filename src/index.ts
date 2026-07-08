@@ -1099,6 +1099,35 @@ async function fetchPosteriorsForSignature(
       else cell.beta += 1;
       cell.samples += 1;
     }
+    // CLOSURE-CREDIT DOWN-WEIGHTING (incentive rewire): a detector tick earns
+    // Thompson alpha for each completed run, but a detector that keeps FILING
+    // gaps which never CLOSE is not producing real value. Consume the per-detector
+    // closure ledger written by development-vessel closeLandedGap and scale down
+    // the alpha of detector ticks whose filed gaps rarely close, so repair ticks
+    // (draft-gap-closing, drain-pending, apply-proposal) win selection traffic
+    // over pure detection ticks. Best-effort — never break selection.
+    try {
+      const ledgerPath = process.env.DETECTOR_CLOSURE_LEDGER_PATH ?? "/workspace/detector-closure-credit.json";
+      const { readFileSync: _rf, existsSync: _ex } = require("node:fs") as typeof import("node:fs");
+      if (_ex(ledgerPath)) {
+        const ledger = JSON.parse(_rf(ledgerPath, "utf8")) as Record<string, { closures?: number }>;
+        for (const [gIdx, cell] of cells) {
+          const tid = AUTONOMOUS_GOAL_TARGET_TEMPLATES[gIdx];
+          if (typeof tid !== "string") continue;
+          const stem = tid.replace(/^development-vessel:/, "").replace(/-/g, "_");
+          let closures = 0;
+          let matched = false;
+          for (const [det, entry] of Object.entries(ledger)) {
+            if (det && stem.includes(det)) { closures += entry?.closures ?? 0; matched = true; }
+          }
+          if (!matched) continue; // not a ledgered detector tick — leave alpha unchanged
+          const filings = cell.samples; // completed detector-tick runs ~= filings
+          if (filings < 3) continue;
+          const mult = Math.max(0.1, Math.min(1, (closures + 1) / (filings + 1)));
+          cell.alpha = cell.alpha * mult;
+        }
+      }
+    } catch { /* best-effort ledger consume — never break selection */ }
   } catch {
     /* swallow — degrade to round-robin */
   }
