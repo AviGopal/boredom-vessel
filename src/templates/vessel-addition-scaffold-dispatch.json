@@ -1,0 +1,120 @@
+{
+  "id": "vessel-addition-scaffold-dispatch",
+  "name": "Vessel Addition: Scaffold and Publish Dispatch",
+  "description": "Reads a vessel scenario from the validation failure-modes library, generates a vessel design via LLM, and dispatches to scaffold-and-publish-vessel. This is the deterministic consumer half of the routing decision made by gap-to-scenario-bridge, enabling capability horizons that require new resolvers (not recombination) to grow the action space.",
+  "output_shape": "vesselScaffoldDispatchResult",
+  "tags": ["boredom_target_template", "lift.autonomous.loop", "vessel.addition"],
+  "tasks": [
+    {
+      "id": "read_scenario_files",
+      "activity_ref": "read_directory_files",
+      "inputs": {
+        "path": "/workspace/validation/failure-modes/vessel-scenarios/*.json",
+        "shuffle": true
+      }
+    },
+    {
+      "id": "extract_first_scenario",
+      "activity_ref": "json_path_extract",
+      "inputs": {
+        "data": "{{read_scenario_files.result}}",
+        "path": "$[0]"
+      }
+    },
+    {
+      "id": "read_scenario_content",
+      "activity_ref": "read_file",
+      "inputs": {
+        "path": "{{extract_first_scenario.result}}"
+      }
+    },
+    {
+      "id": "generate_vessel_design",
+      "activity_ref": "llm_completion_dispatch",
+      "inputs": {
+        "prompt": "Given the following vessel scenario, generate a vessel design as a JSON object with these exact fields: vessel_name (kebab-case, ends with -vessel), port (integer between 8300 and 8399, unique), advertised_shapes_literal (TypeScript type literal string for the shapes this vessel will expose), description (one sentence describing what the vessel resolves), commit_message (conventional commit format), pr_title (short imperative title), pr_body (markdown body including a 'Substrate-Authored-By: substrate-loop' trailer line).\n\nScenario:\n{{read_scenario_content.result}}\n\nRespond with ONLY valid JSON, no markdown fences."
+      }
+    },
+    {
+      "id": "extract_vessel_name",
+      "activity_ref": "json_path_extract",
+      "inputs": {
+        "data": "{{generate_vessel_design.result}}",
+        "path": "$.vessel_name"
+      }
+    },
+    {
+      "id": "extract_port",
+      "activity_ref": "json_path_extract",
+      "inputs": {
+        "data": "{{generate_vessel_design.result}}",
+        "path": "$.port"
+      }
+    },
+    {
+      "id": "extract_advertised_shapes_literal",
+      "activity_ref": "json_path_extract",
+      "inputs": {
+        "data": "{{generate_vessel_design.result}}",
+        "path": "$.advertised_shapes_literal"
+      }
+    },
+    {
+      "id": "extract_description",
+      "activity_ref": "json_path_extract",
+      "inputs": {
+        "data": "{{generate_vessel_design.result}}",
+        "path": "$.description"
+      }
+    },
+    {
+      "id": "extract_commit_message",
+      "activity_ref": "json_path_extract",
+      "inputs": {
+        "data": "{{generate_vessel_design.result}}",
+        "path": "$.commit_message"
+      }
+    },
+    {
+      "id": "extract_pr_title",
+      "activity_ref": "json_path_extract",
+      "inputs": {
+        "data": "{{generate_vessel_design.result}}",
+        "path": "$.pr_title"
+      }
+    },
+    {
+      "id": "extract_pr_body",
+      "activity_ref": "json_path_extract",
+      "inputs": {
+        "data": "{{generate_vessel_design.result}}",
+        "path": "$.pr_body"
+      }
+    },
+    {
+      "id": "dispatch_scaffold",
+      "activity_ref": "http_post",
+      "inputs": {
+        "url": "http://127.0.0.1:8210/run-goal",
+        "body": {
+          "targetTemplateId": "development-vessel:scaffold-and-publish-vessel",
+          "variables": {
+            "vessel_name": "{{extract_vessel_name.result}}",
+            "port": "{{extract_port.result}}",
+            "advertised_shapes_literal": "{{extract_advertised_shapes_literal.result}}",
+            "description": "{{extract_description.result}}",
+            "commit_message": "{{extract_commit_message.result}}",
+            "pr_title": "{{extract_pr_title.result}}",
+            "pr_body": "{{extract_pr_body.result}}",
+            "dirPath": "/workspace/repos/{{extract_vessel_name.result}}",
+            "unitFilePath": "/etc/systemd/system/{{extract_vessel_name.result}}.service",
+            "owner": "substrate-loop",
+            "repo": "{{extract_vessel_name.result}}",
+            "base_branch": "main",
+            "target_branch": "feat/scaffold-{{extract_vessel_name.result}}"
+          }
+        }
+      }
+    }
+  ]
+}
