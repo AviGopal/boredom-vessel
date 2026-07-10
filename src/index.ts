@@ -2599,6 +2599,15 @@ const OUTCOME_TTL_MS = 60 * 60 * 1000; // 1 hour
 // collapsed UCB to uniform allocation. `outcome` is retained (derived) for any
 // reader that still keys on the bit.
 const momentumByTemplate = new Map<string, { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] }>();
+const MOMENTUM_STORE_PATH = process.env["BOREDOM_MOMENTUM_STORE_PATH"] ?? "/workspace/boredom-momentum.json";
+let lastMomentumWriteAt = 0;
+function persistMomentum(): void {
+  const now = Date.now();
+  if (now - lastMomentumWriteAt < 5000) return;
+  lastMomentumWriteAt = now;
+  const snapshot = JSON.stringify({ totalPicks: totalPicksV24f, templates: Object.fromEntries([...momentumByTemplate.entries()].map(([k, v]) => [k, v.outcomes])), idle: Object.fromEntries(consecutiveIdleByTemplate) });
+  Bun.write(MOMENTUM_STORE_PATH, snapshot).catch(() => {});
+}
 const consecutiveIdleByTemplate = new Map<string, number>();
 // Reward a clean-but-empty tick earns. Non-zero so health/observer detectors
 // stay periodically sampleable via the UCB explore bonus, but well below a
@@ -2669,6 +2678,7 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
   // Soft cap on memory: keep at most 50 outcomes per template, dropping oldest.
   while (m.outcomes.length > 50) m.outcomes.shift();
   totalPicksV24f += 1;
+  persistMomentum();
 }
 
 // ─── Cost model (V30, 2026-06-14): cost as a predicted-and-validated posterior ───
