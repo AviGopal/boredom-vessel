@@ -3679,13 +3679,19 @@ async function poolLoop(): Promise<void> {
         void (async () => {
           try {
             const skipSet = await buildSkipSetFromLessons("semantic_reject");
+            const t0shape = Date.now();
             const result = await dispatchByTemplateId(shapePick.template_id);
             inFlight.delete(reserveId);
             if (result) {
+              const durationMs = Date.now() - t0shape;
+              const costTokens = expectedCostTokens(shapePick.template_id);
+              const cheap = (durationMs < 5000) && ((costTokens ?? 0) === 0);
+              if (cheap) { lastDispatchAt = Math.min(lastDispatchAt, Date.now() - MIN_DISPATCH_INTERVAL_MS + 5000); }
               console.log(
                 `[pool/shape] completed ${shapePick.template_id} ` +
                 `outcome=${result.success ? "success" : "no_op"} ` +
-                `executionId=${result.execution_id ?? "?"}`,
+                `executionId=${result.execution_id ?? "?"}` +
+                (cheap ? ` (cheap-tick shortcut applied, next in ~5s)` : ""),
               );
             }
           } catch (err) {
