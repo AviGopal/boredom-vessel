@@ -2599,6 +2599,7 @@ const OUTCOME_TTL_MS = 60 * 60 * 1000; // 1 hour
 // collapsed UCB to uniform allocation. `outcome` is retained (derived) for any
 // reader that still keys on the bit.
 const momentumByTemplate = new Map<string, { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] }>();
+const consecutiveIdleByTemplate = new Map<string, number>();
 // Reward a clean-but-empty tick earns. Non-zero so health/observer detectors
 // stay periodically sampleable via the UCB explore bonus, but well below a
 // productive tick (1.0) so finding-producing detectors win more budget.
@@ -2652,10 +2653,19 @@ function gradeNovelty(templateId: string, hashes: string[] | undefined): "novel"
 function recordOutcomeByTemplate(templateId: string, outcome: boolean | number): void {
   // Accepts a legacy boolean (true→1.0, false→0.0) or a graded reward ∈ [0,1].
   const reward = typeof outcome === "number" ? Math.max(0, Math.min(1, outcome)) : (outcome ? 1 : 0);
-  let m = momentumByTemplate.get(templateId);
-  if (!m) { m = { outcomes: [] }; momentumByTemplate.set(templateId, m); }
+  if (reward <= IDLE_REWARD) {
+    consecutiveIdleByTemplate.set(templateId, (consecutiveIdleByTemplate.get(templateId) ?? 0) + 1);
+  } else {
+    consecutiveIdleByTemplate.set(templateId, 0);
+  }
+  let m: { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } | undefined = momentumByTemplate.get(templateId) as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } | undefined;
+  if (!m || !Array.isArray((m as unknown as { outcomes?: unknown }).outcomes)) {
+    const fresh: { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } = { outcomes: [] };
+    momentumByTemplate.set(templateId, fresh as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] });
+    m = fresh;
+  }
   m.outcomes.push({ outcome: reward > 0 ? "success" : "failure", at: Date.now(), reward });
-  pruneStaleOutcomes(m);
+  pruneStaleOutcomes(m as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] });
   // Soft cap on memory: keep at most 50 outcomes per template, dropping oldest.
   while (m.outcomes.length > 50) m.outcomes.shift();
   totalPicksV24f += 1;
@@ -3029,11 +3039,14 @@ function ucbScore(
   // cost/shape-availability machinery produced, so urgency preempts routine
   // ticks without disturbing the relative ordering among equal-priority ticks.
   // pw=1.0 ⇒ score === finiteScore (pre-C9 behavior).
-  const score = finiteScore * pw;
-  return {
-    score,
-    reason: `mean=${mean.toFixed(2)} ucb=${explore.toFixed(2)} cost=${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}×${costAdj.toFixed(2)}${Number.isFinite(rawScore) ? "" : "(NaN→base)"} picks=${picks} shape=${shapeAvail.toFixed(2)} pull=${pipelinePull}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""}`,
-  };
+  let finalScore = finiteScore * pw;
+  let reason = `mean=${mean.toFixed(2)} ucb=${explore.toFixed(2)} cost=${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}×${costAdj.toFixed(2)}${Number.isFinite(rawScore) ? "" : "(NaN→base)"} picks=${picks} shape=${shapeAvail.toFixed(2)} pull=${pipelinePull}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""}`;
+  const ci = consecutiveIdleByTemplate.get(templateId) ?? 0;
+  if (ci >= 2) {
+    finalScore *= Math.pow(0.5, Math.min(ci, 4));
+    reason += ` idle×${ci}`;
+  }
+  return { score: finalScore, reason };
 }
 
 async function pickByShapeAvailability(
