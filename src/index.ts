@@ -2353,7 +2353,7 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
       } catch { /* default bucket 0 */ }
       const loadCeiling = 1 - currentLoadBucket / 3;
       const familyShapes: Record<string, string[]> = {
-        "gap-closing": ["substrateGap", "gap_lifecycle_scan", "reachability_gap_repair"],
+    
         "pattern-mining": ["trace_recurring_pattern_scan", "signature_cluster_scan", "recurringPatternCluster"],
         "reality-modeling": ["substrate_health_tick", "learned_topology_snapshot", "coverage_tick"],
         "data-management": ["docs_align_scan", "docsAlignReport"],
