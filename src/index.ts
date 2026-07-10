@@ -3617,7 +3617,16 @@ async function dispatchOne(goalIdx: number, state: SubstrateState): Promise<{ di
   return { dispatch_id: dispatchId, execution_id: dispatch.executionId };
 }
 
+let poolLoopActive = false;
+let selectionWake: (() => void) | null = null;
 async function poolLoop(): Promise<void> {
+  if (poolLoopActive) {
+    const w = selectionWake;
+    selectionWake = null;
+    if (w) w();
+    return;
+  }
+  poolLoopActive = true;
   console.error(`[pool] daemon starting: endpoint=${GOAL_HOST_ENDPOINT}`);
   await hydrateMomentum();
   subscribeSelectionEvents(() => { void poolLoop(); });
@@ -3783,7 +3792,10 @@ async function poolLoop(): Promise<void> {
       // Respect inter-dispatch throttle but do NOT block on HTTP.
       await new Promise((r) => setTimeout(r, MIN_DISPATCH_INTERVAL_MS));
     }
-    await new Promise((r) => setTimeout(r, POOL_LOOP_INTERVAL_MS));
+    await new Promise<void>((resolve) => {
+      const t = setTimeout(() => { selectionWake = null; resolve(); }, POOL_LOOP_INTERVAL_MS);
+      selectionWake = () => { clearTimeout(t); resolve(); };
+    });
   }
 }
 
