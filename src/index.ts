@@ -2252,6 +2252,83 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
       }
     }
   } catch { /* ignore — leave mode state as-is (fail open) */ }
+  // Fold time-shaped rhythm registry due-state into priorityWeightByShape.
+  // Best-effort / fail-open: unreachable producer or empty registry leaves
+  // priorityWeightByShape untouched (weights default to 1.0, no log).
+  try {
+    const rhRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { type: "poolImpulse", shape: "timeShapedRhythm", limit: 50 } }),
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (rhRes.ok) {
+      const rh = (await rhRes.json()) as {
+        body?: {
+          impulses?: Array<{
+            id?: unknown;
+            body?: {
+              axis?: unknown;
+              axis_code?: unknown;
+              family?: unknown;
+              budget?: unknown;
+              alpha?: unknown;
+              beta?: unknown;
+              staleness?: unknown;
+            };
+          }>;
+        };
+      };
+      const impulses = rh?.body?.impulses ?? [];
+      // Derive current load bucket from /proc/loadavg first field.
+      let currentLoadBucket = 0;
+      try {
+        const txt = await Bun.file("/proc/loadavg").text();
+        const load = parseFloat(txt.split(/\s+/)[0] ?? "0");
+        currentLoadBucket = load < 1 ? 0 : load < 3 ? 1 : load < 8 ? 2 : 3;
+      } catch { /* default bucket 0 */ }
+      const loadCeiling = 1 - currentLoadBucket / 3;
+      const familyShapes: Record<string, string[]> = {
+        "gap-closing": ["substrateGap", "gap_lifecycle_scan", "reachability_gap_repair"],
+        "pattern-mining": ["trace_recurring_pattern_scan", "signature_cluster_scan", "recurringPatternCluster"],
+        "reality-modeling": ["substrate_health_tick", "learned_topology_snapshot", "coverage_tick"],
+        "data-management": ["docs_align_scan", "docsAlignReport"],
+        "human-interacting": ["obsidian_request_scan", "solicitation_outcome_scan"],
+      };
+      let actionableCount = 0;
+      let topFamily = "";
+      let topDue = 0;
+      for (const imp of impulses) {
+        const b = imp?.body;
+        if (!b || typeof b !== "object") continue;
+        const alpha = Number(b.alpha);
+        const beta = Number(b.beta);
+        const budget = Number(b.budget);
+        const staleness = Number(b.staleness);
+        const family = String(b.family ?? "");
+        if (!Number.isFinite(alpha) || !Number.isFinite(beta) || !Number.isFinite(budget) || !Number.isFinite(staleness)) continue;
+        const denom = alpha + beta;
+        if (denom <= 0) continue;
+        const due_score = (alpha / denom) * staleness / Math.max(budget, 0.05);
+        if (!(due_score >= 1.0)) continue;
+        if (!(budget <= loadCeiling)) continue;
+        const shapes = familyShapes[family];
+        if (!shapes) continue;
+        actionableCount++;
+        if (due_score > topDue) { topDue = due_score; topFamily = family; }
+        const wv = Math.min(PRIORITY_WEIGHT_HIGH, 1.0 + due_score);
+        for (const shape of shapes) {
+          const cur = priorityWeightByShape.get(shape) ?? 1.0;
+          if (wv > cur) priorityWeightByShape.set(shape, wv);
+        }
+      }
+      if (actionableCount > 0) {
+        console.error(
+          `[boredom-vessel] rhythm read: ${actionableCount} actionable, top=${topFamily}(${topDue.toFixed(2)})`,
+        );
+      }
+    }
+  } catch { /* ignore — fail open, weights default 1.0 */ }
   try {
     const res = await fetch(`${ACTIVITY_API_ENDPOINT}/v2/activities/templates?limit=60`, {
       headers: authHeaders(),
