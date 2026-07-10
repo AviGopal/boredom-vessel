@@ -3673,7 +3673,12 @@ async function poolLoop(): Promise<void> {
           started_at: Date.now(),
           signature: null,
         });
-        lastDispatchAt = Date.now();
+        const reserveTokens = expectedCostTokens(shapePick.template_id) ?? 0;
+        if (reserveTokens === 0) {
+          lastDispatchAt = Date.now() - MIN_DISPATCH_INTERVAL_MS + 5000;
+        } else {
+          lastDispatchAt = Date.now();
+        }
         console.log(
           `[pool/shape] reserving ${shapePick.template_id} score=${shapePick.score.toFixed(2)} ` +
           `(${shapePick.reason}) in_flight=${inFlight.size}/${MAX_CONCURRENT}`,
