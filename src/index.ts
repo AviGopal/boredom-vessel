@@ -2681,6 +2681,37 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
   persistMomentum();
 }
 
+async function hydrateMomentum(): Promise<void> {
+  try {
+    const raw = await Bun.file(MOMENTUM_STORE_PATH).text();
+    const saved = JSON.parse(raw) as {
+      totalPicks?: number;
+      templates?: Record<string, { outcome: "success" | "failure"; at: number; reward: number }[]>;
+      idle?: Record<string, number>;
+    };
+    if (typeof saved.totalPicks === "number" && saved.totalPicks > totalPicksV24f)
+      totalPicksV24f = saved.totalPicks;
+    for (const [tid, outcomes] of Object.entries(saved.templates ?? {})) {
+      if (!Array.isArray(outcomes)) continue;
+      const m = {
+        outcomes: outcomes.filter(
+          (o) => o && typeof o.at === "number" && typeof o.reward === "number",
+        ),
+      };
+      pruneStaleOutcomes(m);
+      if (m.outcomes.length > 0) momentumByTemplate.set(tid, m);
+    }
+    for (const [tid, n] of Object.entries(saved.idle ?? {})) {
+      if (typeof n === "number" && n > 0) consecutiveIdleByTemplate.set(tid, n);
+    }
+    console.error(
+      `[pool] momentum hydrated: ${momentumByTemplate.size} templates, totalPicks=${totalPicksV24f}`,
+    );
+  } catch {
+    /* no snapshot or unreadable — start fresh */
+  }
+}
+
 // ─── Cost model (V30, 2026-06-14): cost as a predicted-and-validated posterior ───
 // V28 made the selector grade *information yield* but left it cost-blind: it spent
 // equal regard on a detector that yields a finding in 200ms and one that yields the
@@ -3534,6 +3565,8 @@ async function dispatchOne(goalIdx: number, state: SubstrateState): Promise<{ di
 }
 
 async function poolLoop(): Promise<void> {
+  console.error(`[pool] daemon starting: endpoint=${GOAL_HOST_ENDPOINT}`);
+  await hydrateMomentum();
   console.log(
     `[pool] daemon starting: MAX_CONCURRENT=${MAX_CONCURRENT} ` +
     `MIN_DISPATCH_INTERVAL_MS=${MIN_DISPATCH_INTERVAL_MS} ` +
