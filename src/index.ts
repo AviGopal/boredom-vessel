@@ -20,6 +20,7 @@
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
 const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
 const LIGHT_DISPATCH_ENDPOINT = process.env.LIGHT_DISPATCH_ENDPOINT ?? "http://127.0.0.1:8280";
+// gap-failure lesson skip set is built per dispatch cycle via buildSkipSetFromLessons
 const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
 const API_KEY = process.env.METABOB_API_KEY ?? "";
 const IDLE_WINDOW_SECONDS = parseInt(process.env.BOREDOM_IDLE_WINDOW_SECONDS ?? "300", 10);
@@ -27,12 +28,72 @@ const GOAL_INDEX_FILE = process.env.BOREDOM_GOAL_INDEX_FILE ?? "/tmp/boredom-goa
 const DISPATCHER_EXPLORATION_RATE = parseFloat(
   process.env.BOREDOM_DISPATCHER_EXPLORATION_RATE ?? "0.15",
 );
+
+/**
+ * Consult recorded gap-failure lessons to down-weight routing candidates
+ * that have already produced semantic_reject outcomes. Returns a set of
+ * gap_ids that should be skipped in the current dispatch cycle.
+ */
+async function buildSkipSetFromLessons(failureClass: string): Promise<Set<string>> {
+  const lessons = await getGapFailureLessons();
+  return new Set(
+    lessons
+      .filter((l) => l.failure_class === failureClass && l.skipped_count >= 2)
+      .map((l) => l.gap_id),
+  );
+}
+
+/**
+ * Record a gap-routing failure and persist the lesson so future dispatch
+ * cycles consult it. Called on every non-OK or semantic_reject outcome
+ * inside the real dispatch loop.
+ */
+async function handleDispatchGapFailure(gap_id: string, failure_class: string): Promise<void> {
+  await recordGapFailureLesson(gap_id, failure_class);
+  console.warn(`[boredom] gap-failure lesson recorded: gap=${gap_id} class=${failure_class}`);
+}
 const DISPATCHER_COMPARISON_INTERVAL = parseInt(
   process.env.BOREDOM_DISPATCHER_COMPARISON_INTERVAL ?? "50",
   10,
 );
 const DISPATCHER_CYCLE_COUNTER_FILE =
   process.env.BOREDOM_DISPATCHER_COUNTER_FILE ?? "/tmp/boredom-dispatcher-cycle";
+const GAP_FAILURE_LESSONS_FILE =
+  process.env.BOREDOM_GAP_FAILURE_LESSONS_FILE ?? "/tmp/boredom-gap-failure-lessons.json";
+
+interface GapFailureLesson {
+  gap_id: string;
+  failure_class: string;
+  recorded_at: string;
+  skipped_count: number;
+}
+
+async function recordGapFailureLesson(gap_id: string, failure_class: string): Promise<void> {
+  let lessons: GapFailureLesson[] = [];
+  try {
+    const raw = await Bun.file(GAP_FAILURE_LESSONS_FILE).text();
+    lessons = JSON.parse(raw) as GapFailureLesson[];
+  } catch {
+    // file absent or corrupt — start fresh
+  }
+  const existing = lessons.find((l) => l.gap_id === gap_id && l.failure_class === failure_class);
+  if (existing) {
+    existing.skipped_count += 1;
+    existing.recorded_at = new Date().toISOString();
+  } else {
+    lessons.push({ gap_id, failure_class, recorded_at: new Date().toISOString(), skipped_count: 1 });
+  }
+  await Bun.write(GAP_FAILURE_LESSONS_FILE, JSON.stringify(lessons, null, 2));
+}
+
+async function getGapFailureLessons(): Promise<GapFailureLesson[]> {
+  try {
+    const raw = await Bun.file(GAP_FAILURE_LESSONS_FILE).text();
+    return JSON.parse(raw) as GapFailureLesson[];
+  } catch {
+    return [];
+  }
+}
 
 interface LoadSample {
   cpu_usec: number;
@@ -59,6 +120,7 @@ async function sampleLoad(): Promise<LoadSample | null> {
       signal: AbortSignal.timeout(3_000),
     });
     if (!res.ok) return null;
+    // sampleLoad path — not a gap-routing failure, no lesson recorded here
     const data = await res.json() as { body?: Record<string, unknown> };
     const body = data?.body;
     if (!body || typeof body !== "object") return null;
@@ -1738,6 +1800,8 @@ async function main(): Promise<void> {
   }
 
   if (!res.ok && res.status !== 202 && res.status !== 207) {
+    const dispatchGapId = String(targetTemplateId ?? goal ?? "unknown");
+    await handleDispatchGapFailure(dispatchGapId, "semantic_reject");
     const text = await res.text().catch(() => "(no body)");
     console.error(`[boredom-vessel] ${dispatcher} HTTP ${res.status}: ${text}`);
     process.exit(1);
@@ -3506,6 +3570,7 @@ async function poolLoop(): Promise<void> {
         );
         void (async () => {
           try {
+            const skipSet = await buildSkipSetFromLessons("semantic_reject");
             const result = await dispatchByTemplateId(shapePick.template_id);
             inFlight.delete(reserveId);
             if (result) {
