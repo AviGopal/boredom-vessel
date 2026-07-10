@@ -2376,11 +2376,17 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
         const due_score = (alpha / denom) * staleness / Math.max(budget, 0.05);
         if (!(due_score >= 1.0)) continue;
         if (!(budget <= loadCeiling)) continue;
+        const wv = Math.min(PRIORITY_WEIGHT_HIGH, 1.0 + due_score);
+        if (family === "gap-closing") {
+          if (wv > priorityFloorWeight) priorityFloorWeight = wv;
+          actionableCount++;
+          if (due_score > topDue) { topDue = due_score; topFamily = family; }
+          continue;
+        }
         const shapes = familyShapes[family];
         if (!shapes) continue;
         actionableCount++;
         if (due_score > topDue) { topDue = due_score; topFamily = family; }
-        const wv = Math.min(PRIORITY_WEIGHT_HIGH, 1.0 + due_score);
         for (const shape of shapes) {
           const cur = priorityWeightByShape.get(shape) ?? 1.0;
           if (wv > cur) priorityWeightByShape.set(shape, wv);
