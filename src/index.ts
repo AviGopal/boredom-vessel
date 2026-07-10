@@ -2987,8 +2987,9 @@ function ucbScore(
   if (m) pruneStaleOutcomes(m); // V27: ensure stale outcomes don't poison the score
   const picks = m?.outcomes.length ?? 0;
   if (picks === 0) {
-    // Unsampled (or fully-decayed) templates always win until they've been tried once.
-    return { score: Number.POSITIVE_INFINITY, reason: `ucb=∞ picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""}` };
+    // Unsampled (or fully-decayed) templates get a finite cold-start score so
+    // priority/urgency weights (pw > 1.0) can still compete with them.
+    return { score: (IDLE_REWARD + 1.4 * explorationBoost) * Math.max(shapeAvail, 1) * pw, reason: `ucb=cold picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""}` };
   }
   // V28: mean = average information-yield reward (not success fraction), so UCB
   // exploits detectors that actually produce findings.
