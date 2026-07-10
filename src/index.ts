@@ -2681,6 +2681,50 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
   persistMomentum();
 }
 
+function subscribeSelectionEvents(runSelectionPass: () => void): void {
+  let ws: WebSocket | null = null;
+  let backoffMs = 1000;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  const onEvent = () => {
+    if (debounceTimer) return;
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      try {
+        if (inFlight.size < MAX_CONCURRENT) runSelectionPass();
+      } catch { /* selection errors surface in the loop */ }
+    }, 2000);
+  };
+  const connect = () => {
+    try {
+      const url = (process.env["ACTIVITY_API_ENDPOINT"] ?? "http://127.0.0.1:8080").replace(/^http/, "ws") + "/ws";
+      ws = new WebSocket(url);
+      ws.onopen = () => {
+        backoffMs = 1000;
+        try {
+          ws?.send(JSON.stringify({ type: "authenticate", token: process.env["METABOB_API_KEY"] ?? "" }));
+        } catch { /* non-fatal */ }
+      };
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(String(ev.data)) as { type?: string };
+          if (msg.type === "task.completed" || msg.type === "impulse.resolved") onEvent();
+        } catch { /* ignore malformed frames */ }
+      };
+      ws.onclose = () => {
+        setTimeout(connect, backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 30000);
+      };
+      ws.onerror = () => {
+        try { ws?.close(); } catch { /* already closing */ }
+      };
+    } catch {
+      setTimeout(connect, backoffMs);
+      backoffMs = Math.min(backoffMs * 2, 30000);
+    }
+  };
+  connect();
+}
+
 async function hydrateMomentum(): Promise<void> {
   try {
     const raw = await Bun.file(MOMENTUM_STORE_PATH).text();
@@ -3567,6 +3611,7 @@ async function dispatchOne(goalIdx: number, state: SubstrateState): Promise<{ di
 async function poolLoop(): Promise<void> {
   console.error(`[pool] daemon starting: endpoint=${GOAL_HOST_ENDPOINT}`);
   await hydrateMomentum();
+  subscribeSelectionEvents(() => { void poolLoop(); });
   console.log(
     `[pool] daemon starting: MAX_CONCURRENT=${MAX_CONCURRENT} ` +
     `MIN_DISPATCH_INTERVAL_MS=${MIN_DISPATCH_INTERVAL_MS} ` +
