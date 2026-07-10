@@ -2681,6 +2681,7 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
   persistMomentum();
 }
 
+let promptSelectionPass: () => void = () => {};
 function subscribeSelectionEvents(runSelectionPass: () => void): void {
   let ws: WebSocket | null = null;
   let backoffMs = 1000;
@@ -2694,6 +2695,7 @@ function subscribeSelectionEvents(runSelectionPass: () => void): void {
       } catch { /* selection errors surface in the loop */ }
     }, 2000);
   };
+  promptSelectionPass = onEvent;
   const connect = () => {
     try {
       const url = (process.env["ACTIVITY_API_ENDPOINT"] ?? "http://127.0.0.1:8080").replace(/^http/, "ws") + "/ws";
@@ -3687,6 +3689,7 @@ async function poolLoop(): Promise<void> {
               const costTokens = expectedCostTokens(shapePick.template_id);
               const cheap = (durationMs < 5000) && ((costTokens ?? 0) === 0);
               if (cheap) { lastDispatchAt = Math.min(lastDispatchAt, Date.now() - MIN_DISPATCH_INTERVAL_MS + 5000); }
+              if (cheap) { promptSelectionPass(); }
               console.log(
                 `[pool/shape] completed ${shapePick.template_id} ` +
                 `outcome=${result.success ? "success" : "no_op"} ` +
