@@ -2798,6 +2798,14 @@ async function hydrateMomentum(): Promise<void> {
     };
     if (typeof saved.totalPicks === "number" && saved.totalPicks > totalPicksV24f)
       totalPicksV24f = saved.totalPicks;
+    const IDLE_DEMOTION_WINDOW_MS = parseInt(process.env["BOREDOM_IDLE_DEMOTION_WINDOW_MS"] ?? "3600000", 10);
+    const MOMENTUM_DEMOTION_FLOOR = parseFloat(process.env["BOREDOM_MOMENTUM_DEMOTION_FLOOR"] ?? "0.3");
+    let dispatchLog: Record<string, Array<{ completedAt: number; hasBehavioralDelta: boolean }>> = {};
+    try {
+      const logPath = process.env["BOREDOM_DISPATCH_LOG_PATH"] ?? "/workspace/boredom-dispatch-log.json";
+      const logRaw = await Bun.file(logPath).text();
+      dispatchLog = JSON.parse(logRaw) as Record<string, Array<{ completedAt: number; hasBehavioralDelta: boolean }>>;
+    } catch { /* absent or corrupt — treat all templates as having no recent delta-bearing completions */ }
     for (const [tid, outcomes] of Object.entries(saved.templates ?? {})) {
       if (!Array.isArray(outcomes)) continue;
       const m = {
@@ -2806,7 +2814,27 @@ async function hydrateMomentum(): Promise<void> {
         ),
       };
       pruneStaleOutcomes(m);
-      if (m.outcomes.length > 0) momentumByTemplate.set(tid, m);
+      if (m.outcomes.length === 0) continue;
+      // Decay momentum on hydration for templates with zero recent delta-bearing completions.
+      // A template whose persisted momentum is high but that has produced no behavioral
+      // delta (finding, side-effect, or novel output) within the demotion window gets capped
+      // at MOMENTUM_DEMOTION_FLOOR so stale winners don't continue dominating UCB selection
+      // after a restart that wiped the in-memory reward signal.
+      const lookbackCutoff = Date.now() - IDLE_DEMOTION_WINDOW_MS;
+      const recentDeltaCompletions = (dispatchLog[tid] ?? []).filter(
+        (entry) => entry.completedAt >= lookbackCutoff && entry.hasBehavioralDelta,
+      );
+      const hasDeltaInWindow = recentDeltaCompletions.length > 0;
+      if (!hasDeltaInWindow) {
+        // Cap each outcome's reward at the demotion floor so the hydrated mean
+        // cannot exceed MOMENTUM_DEMOTION_FLOOR, while preserving relative ordering
+        // within the capped template's own history.
+        m.outcomes = m.outcomes.map((o) => ({
+          ...o,
+          reward: Math.min(o.reward, MOMENTUM_DEMOTION_FLOOR),
+        }));
+      }
+      momentumByTemplate.set(tid, m);
     }
     for (const [tid, n] of Object.entries(saved.idle ?? {})) {
       if (typeof n === "number" && n > 0) consecutiveIdleByTemplate.set(tid, n);
@@ -3659,7 +3687,18 @@ async function dispatchOne(goalIdx: number, state: SubstrateState): Promise<{ di
     const shapes = (dispatch as Record<string, unknown>)["output_shapes"] as string[] | undefined;
     const lastShape = Array.isArray(shapes) && shapes.length > 0 ? shapes[shapes.length - 1] : undefined;
     const noOpSignaled = lastShape === "structuredError";
-    const success = (dispatch.status === "success" || dispatch.status === "completed") && !noOpSignaled;
+    // Reclassify success-without-delta as no_op
+    const inputHash = (dispatch as Record<string, unknown>)["inputStateHash"] as string | null ?? null;
+    const outputHash = (dispatch as Record<string, unknown>)["outputStateHash"] as string | null ?? null;
+    const isSelfReferentialOnly = (dispatch as Record<string, unknown>)["artifacts"] != null &&
+      Array.isArray((dispatch as Record<string, unknown>)["artifacts"]) &&
+      ((dispatch as Record<string, unknown>)["artifacts"] as Array<{ kind?: string }>).length > 0 &&
+      ((dispatch as Record<string, unknown>)["artifacts"] as Array<{ kind?: string }>).every((a) => a.kind === "proposal_report");
+    const hasBehavioralDelta = (inputHash !== outputHash) && !isSelfReferentialOnly;
+    const effectiveOutcome = ((dispatch.status === "success" || dispatch.status === "completed") && !noOpSignaled && !hasBehavioralDelta)
+      ? "no_op"
+      : dispatch.status;
+    const success = effectiveOutcome !== "no_op" && (dispatch.status === "success" || dispatch.status === "completed") && !noOpSignaled;
     recordOutcome(goalIdx, success);
     console.log(
       `[pool] light-dispatch sync goal[${goalIdx}] (${targetTemplateId ?? "?"}) status=${dispatch.status} ` +
