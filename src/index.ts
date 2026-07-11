@@ -878,6 +878,8 @@ const EXECUTABLE_RESOLVERS = new Set([
   // deterministic vessel resolvers (discovery-routed) commonly emitted by the
   // real-chain author for non-gap-closing capability:
   "concept_select_for_prompt", "concept_create_write", "concept_usage_record",
+  // deterministic dev-vessel resolvers emitted by newer gap-closing drafts:
+  "fs_grep", "intervention_evaluate",
 ]);
 // Authored-activity id prefixes the picker exercises. `gap-closing:` is the
 // historical set; `proposed_pattern_authored_` is what draft-activity-from-pattern
