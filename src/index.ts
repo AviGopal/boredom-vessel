@@ -3321,10 +3321,26 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
       // detector stuck re-finding the same thing decays instead of pinning at
       // mean=1.0 and starving genuinely-uncertain cells of pool budget.
       const novelty = gradeNovelty(templateId, body.finding_hashes);
-      reward = novelty === "redundant" ? IDLE_REWARD : 1;
+      const information_yield_raw = novelty === "redundant" ? IDLE_REWARD : 1;
+      // Self-referential check: cycles whose only artifacts are all
+      // kind===proposal_report produced no behavioural delta — the substrate
+      // wrote a proposal about writing a proposal. Record reward=0 so the
+      // template decays in UCB selection instead of being graded productive.
+      const allArtifactsProposalReport =
+        Array.isArray(body.finding_hashes) && body.finding_hashes.length === 0 &&
+        typeof (body as Record<string, unknown>)["artifacts"] !== "undefined" &&
+        Array.isArray((body as Record<string, unknown>)["artifacts"]) &&
+        ((body as Record<string, unknown>)["artifacts"] as Array<{ kind?: string }>).length > 0 &&
+        ((body as Record<string, unknown>)["artifacts"] as Array<{ kind?: string }>).every(
+          (a) => a.kind === "proposal_report",
+        );
+      reward = allArtifactsProposalReport ? 0 : information_yield_raw;
       recordNovelty(templateId, novelty);
       if (novelty === "redundant") {
         console.log(`[pool/shape] ${templateId} productive-but-redundant (${(body.finding_hashes ?? []).length} findings, all previously seen) → reward=${IDLE_REWARD}`);
+      }
+      if (allArtifactsProposalReport) {
+        console.log(`[pool/shape] ${templateId} self-referential (all artifacts are proposal_report) → reward=0`);
       }
     }
     const success = reward > 0;
