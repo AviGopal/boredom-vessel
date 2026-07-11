@@ -24,11 +24,34 @@
  *     (via the recommended templates) — satisfying IAL Phase 27.1.2.
  */
 
+import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditionScaffoldDispatch";
+
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
 const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
 const LIGHT_DISPATCH_ENDPOINT = process.env.LIGHT_DISPATCH_ENDPOINT ?? "http://127.0.0.1:8280";
 // gap-failure lesson skip set is built per dispatch cycle via buildSkipSetFromLessons
 // semantic_reject outcomes update per-gap failure lessons via handleDispatchGapFailure
+// vessel-addition-scaffold-dispatch: wired into dispatch pool — called once per boredom cycle
+async function dispatchVesselAdditionScaffold_impl(): Promise<void> {
+  try {
+    const result = await resolveVesselAdditionScaffoldDispatch({
+      llm_completion_dispatch: async (input: { prompt: string }): Promise<string> => {
+        const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+          body: JSON.stringify({ targetTemplateId: "dev-vessel:llm-completion", variables: { prompt: input.prompt } }),
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (!res.ok) throw new Error(`llm_completion_dispatch failed: ${res.status}`);
+        const data = await res.json() as { result?: { text?: string }; text?: string };
+        return data?.result?.text ?? data?.text ?? "";
+      },
+    });
+    console.log(`[boredom] vessel-addition-scaffold dispatched: ${result.body.vessel_name} at ${result.body.dispatched_at}`);
+  } catch (err) {
+    console.warn("[boredom] vessel-addition-scaffold-dispatch error:", err);
+  }
+}
 const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
 const API_KEY = process.env.METABOB_API_KEY ?? "";
 const IDLE_WINDOW_SECONDS = parseInt(process.env.BOREDOM_IDLE_WINDOW_SECONDS ?? "300", 10);
@@ -1680,8 +1703,32 @@ async function dispatchGoal(
   });
 }
 
+async function dispatchVesselAdditionScaffold(): Promise<void> {
+  try {
+    const res = await fetch(`${LIGHT_DISPATCH_ENDPOINT}/dispatch`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        template_id: "development-vessel:vessel-scaffold-trigger-tick",
+        variables: { source: "boredom-vessel" },
+        tags: ["intent:topology_discovery", BOREDOM_TAG, "scaffold:vessel_addition"],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) {
+      console.warn(`[boredom-vessel] dispatchVesselAdditionScaffold HTTP ${res.status}`);
+    } else {
+      const body = await res.json() as { status?: string; executionId?: string };
+      console.log(`[boredom-vessel] dispatchVesselAdditionScaffold status=${body.status ?? "?"} executionId=${body.executionId ?? "?"}`);
+    }
+  } catch (err) {
+    console.warn(`[boredom-vessel] dispatchVesselAdditionScaffold error: ${(err as Error).message}`);
+  }
+}
+
 async function main(): Promise<void> {
   console.log("[boredom-vessel] tick start");
+  await dispatchVesselAdditionScaffold();
 
   // Run auto-promote scan first — independent of idle check. Substrate-authored
   // proposed templates that accumulated real empirical evidence get promoted
