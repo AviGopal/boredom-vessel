@@ -31,7 +31,7 @@ const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.
 const LIGHT_DISPATCH_ENDPOINT = process.env.LIGHT_DISPATCH_ENDPOINT ?? "http://127.0.0.1:8280";
 // gap-failure lesson skip set is built per dispatch cycle via buildSkipSetFromLessons
 // semantic_reject outcomes update per-gap failure lessons via handleDispatchGapFailure
-// vessel-addition-scaffold-dispatch: wired into dispatch pool — called once per boredom cycle
+// vessel-addition-scaffold-dispatch: wired into dispatch pool — awaited inside runBoredomPass
 async function dispatchVesselAdditionScaffold_impl(): Promise<void> {
   try {
     const result = await resolveVesselAdditionScaffoldDispatch({
@@ -1728,7 +1728,7 @@ async function dispatchVesselAdditionScaffold(): Promise<void> {
 
 async function main(): Promise<void> {
   console.log("[boredom-vessel] tick start");
-  await dispatchVesselAdditionScaffold();
+  await dispatchVesselAdditionScaffold_impl();
 
   // Run auto-promote scan first — independent of idle check. Substrate-authored
   // proposed templates that accumulated real empirical evidence get promoted
