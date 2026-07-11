@@ -2381,6 +2381,13 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
   // Best-effort / fail-open: unreachable producer or empty registry leaves
   // priorityWeightByShape untouched (weights default to 1.0, no log).
   try {
+    // Fire-and-forget rhythm-conductor heartbeat — fail-open, no log on failure.
+    await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { type: "rhythm_conductor_tick" } }),
+      signal: AbortSignal.timeout(4_000),
+    }).catch(() => {});
     const rhRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
