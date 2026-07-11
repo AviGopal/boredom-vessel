@@ -28,6 +28,7 @@ const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0
 const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
 const LIGHT_DISPATCH_ENDPOINT = process.env.LIGHT_DISPATCH_ENDPOINT ?? "http://127.0.0.1:8280";
 // gap-failure lesson skip set is built per dispatch cycle via buildSkipSetFromLessons
+// semantic_reject outcomes update per-gap failure lessons via handleDispatchGapFailure
 const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
 const API_KEY = process.env.METABOB_API_KEY ?? "";
 const IDLE_WINDOW_SECONDS = parseInt(process.env.BOREDOM_IDLE_WINDOW_SECONDS ?? "300", 10);
@@ -57,7 +58,11 @@ async function buildSkipSetFromLessons(failureClass: string): Promise<Set<string
  */
 async function handleDispatchGapFailure(gap_id: string, failure_class: string): Promise<void> {
   await recordGapFailureLesson(gap_id, failure_class);
-  console.warn(`[boredom] gap-failure lesson recorded: gap=${gap_id} class=${failure_class}`);
+  const updated = await getGapFailureLessons();
+  const lesson = updated.find((l) => l.gap_id === gap_id && l.failure_class === failure_class);
+  console.warn(
+    `[boredom] gap-failure lesson updated: gap=${gap_id} class=${failure_class} skipped_count=${lesson?.skipped_count ?? 1}`,
+  );
 }
 const DISPATCHER_COMPARISON_INTERVAL = parseInt(
   process.env.BOREDOM_DISPATCHER_COMPARISON_INTERVAL ?? "50",
