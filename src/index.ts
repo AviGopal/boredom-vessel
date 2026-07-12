@@ -3568,6 +3568,21 @@ function reapStaleInFlight(): void {
  */
 const recentWsCompletions = new Map<string, { success: boolean; received_at: number }>();
 
+// gap momentum-reads-dispatch-status-not-reach: a completed-but-not-reached dispatch must grade as failure.
+async function reachAwareRecordOutcome(dispatchId: string, goalIdx: number, rawSuccess: boolean): Promise<void> {
+  let success = rawSuccess;
+  if (rawSuccess) {
+    try {
+      const r = await fetch(`${GOAL_HOST_ENDPOINT}/executions/${dispatchId}/reach`, { headers: authHeaders(), signal: AbortSignal.timeout(10_000) });
+      if (r.ok) {
+        const d = await r.json().catch(() => ({})) as { reached?: string };
+        if (d.reached === "no") success = false;
+      }
+    } catch { /* verdict unavailable - keep raw outcome */ }
+  }
+  recordOutcome(goalIdx, success);
+}
+
 async function resolveExecutionIdForDispatch(dispatchId: string): Promise<void> {
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
@@ -3595,7 +3610,7 @@ async function resolveExecutionIdForDispatch(dispatchId: string): Promise<void> 
         if (pending) {
           recentWsCompletions.delete(body.executionId);
           inFlight.delete(dispatchId);
-          recordOutcome(entry.goal_idx, pending.success);
+          void reachAwareRecordOutcome(dispatchId, entry.goal_idx, pending.success);
           console.log(
             `[pool] completion (replay): goal[${entry.goal_idx}] (${entry.template_id ?? "?"}) ` +
             `success=${pending.success} in_flight=${inFlight.size}/${MAX_CONCURRENT}`,
@@ -3661,7 +3676,7 @@ async function startWSObserver(): Promise<void> {
         for (const [dispatchId, entry] of inFlight.entries()) {
           if (entry.execution_id === execId) {
             inFlight.delete(dispatchId);
-            recordOutcome(entry.goal_idx, msg.data?.success === true);
+            void reachAwareRecordOutcome(dispatchId, entry.goal_idx, msg.data?.success === true);
             console.log(
               `[pool] completion: goal[${entry.goal_idx}] (${entry.template_id ?? "?"}) ` +
               `success=${msg.data?.success === true} in_flight=${inFlight.size}/${MAX_CONCURRENT}`,
