@@ -3174,6 +3174,7 @@ function ucbScore(
   templateId: string,
   shapeAvail: number,
   priorityWeight = 1.0,
+  unpickedCount: number = 1,
 ): { score: number; reason: string } {
   const pw = Number.isFinite(priorityWeight) && priorityWeight > 0 ? priorityWeight : 1.0;
   const m = momentumByTemplate.get(templateId);
@@ -3182,7 +3183,13 @@ function ucbScore(
   if (picks === 0) {
     // Unsampled (or fully-decayed) templates get a finite cold-start score so
     // priority/urgency weights (pw > 1.0) can still compete with them.
-    return { score: (IDLE_REWARD + 1.4 * explorationBoost) * Math.max(shapeAvail, 1) * pw, reason: `ucb=cold picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""}` };
+    // Cold-start damping: when many templates are unsampled, each individual
+    // cold template's score is divided by sqrt(coldPoolSize) so a large cold
+    // pool cannot collectively monopolize selection over sampled templates.
+    const unpickedCount = [...momentumByTemplate.values()].filter((m) => m.outcomes.length === 0).length + 1;
+    const coldPoolSize = Math.max(unpickedCount, 1);
+    const dampingFactor = 1 / Math.sqrt(coldPoolSize);
+    return { score: (IDLE_REWARD + 1.4 * explorationBoost) * Math.max(shapeAvail, 1) * pw * dampingFactor, reason: `ucb=cold picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""} damp=${dampingFactor.toFixed(3)}` };
   }
   // V28: mean = average information-yield reward (not success fraction), so UCB
   // exploits detectors that actually produce findings.
@@ -3241,6 +3248,7 @@ async function pickByShapeAvailability(
   const eligible = candidates.filter((c) => !inFlightTemplateIds.has(c.template_id));
   if (eligible.length === 0) return null;
 
+  const coldPool = eligible.filter((c) => (momentumByTemplate.get(c.template_id)?.outcomes.length ?? 0) === 0);
   let best: ShapeDrivenPick | null = null;
   // V24f (2026-06-08): score each eligible template via UCB1 + shape-availability.
   // Unsampled templates are picked first (UCB bonus is +∞ for n=0). Once sampled,
@@ -3264,7 +3272,7 @@ async function pickByShapeAvailability(
     // category (→ shape-demand or gap-drain floor) + operational-health colour.
     // Defaults to 1.0 when nothing is urgent (selection unchanged).
     const priorityWeight = priorityWeightForCandidate(c.template_id, c.output_shapes, c.tags);
-    const ucb = ucbScore(c.template_id, shapeAvail, priorityWeight);
+    const ucb = ucbScore(c.template_id, shapeAvail, priorityWeight, coldPool.length);
     if (!best || ucb.score > best.score) {
       best = {
         template_id: c.template_id,
