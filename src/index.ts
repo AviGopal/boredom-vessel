@@ -1933,8 +1933,23 @@ async function main(): Promise<void> {
     if (!pollRes.ok) continue;
     const poll = await pollRes.json() as { status?: string; executionId?: string; error?: string };
     if (poll.status === "completed" || poll.status === "failed") {
+      let goalHostOutcome: "success" | "failure" = "success";
+      try {
+        const execRes = await fetch(
+          `${GOAL_HOST_ENDPOINT}/executions/${dispatchId}`,
+          { headers: { Authorization: `ApiKey ${API_KEY}` }, signal: AbortSignal.timeout(10_000) },
+        );
+        if (execRes.ok) {
+          const execData = await execRes.json() as { reached?: string };
+          if (execData.reached === "no") {
+            goalHostOutcome = "failure";
+          }
+        }
+      } catch {
+        // fetch failed — keep current behavior, do not override outcome
+      }
       console.log(
-        `[boredom-vessel] dispatched — executionId=${poll.executionId ?? "?"} status=${poll.status}`,
+        `[boredom-vessel] dispatched — executionId=${poll.executionId ?? "?"} status=${poll.status} reach_verdict=${goalHostOutcome}`,
       );
       await recordLoadAttribution({
         dispatch_id: dispatchId,
@@ -1944,7 +1959,7 @@ async function main(): Promise<void> {
         dispatched_at: dispatchedAt,
         dispatch_start_ms: dispatchStartMs,
         load_before: loadBefore,
-        goal_status: poll.status,
+        goal_status: goalHostOutcome === "failure" ? "reached_no" : poll.status,
       });
       // Always exit 0 — goal failure is a normal outcome (β+=1 in Thompson posteriors).
       // Exiting 1 marks the systemd unit as failed and disrupts the boredom timer.
