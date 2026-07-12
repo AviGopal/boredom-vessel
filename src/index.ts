@@ -2158,9 +2158,20 @@ function priorityWeightForCandidate(
 ): number {
   let w = 1.0;
   // Shape-demand promotion: this candidate produces a shape an urgent gap wants.
-  for (const s of outputShapes) {
-    const sw = priorityWeightByShape.get(s);
-    if (sw !== undefined && sw > w) w = sw;
+  // Detectors re-sensing an already-filed gap category have near-zero information yield;
+  // withhold this boost so cold detectors don't crowd out patch_proposal closure work
+  // (gap ct3-closure-share-selection-floor). Base UCB, cold-pool damping, and the gap-drain
+  // floor below are unaffected.
+  if (
+    !templateId.includes("detect-") &&
+    !templateId.endsWith("-scan-tick") &&
+    !templateId.endsWith("-audit-tick") &&
+    !templateId.endsWith("-audit")
+  ) {
+    for (const s of outputShapes) {
+      const sw = priorityWeightByShape.get(s);
+      if (sw !== undefined && sw > w) w = sw;
+    }
   }
   // Drain/repair promotion: this candidate closes urgent backlog.
   if (priorityFloorWeight > w && isGapDrainCandidate(templateId, tags)) {
