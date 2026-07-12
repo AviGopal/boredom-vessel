@@ -60,6 +60,10 @@ const DISPATCHER_EXPLORATION_RATE = parseFloat(
   process.env.BOREDOM_DISPATCHER_EXPLORATION_RATE ?? "0.15",
 );
 
+/** Timestamps (ms) of every reservation made for a cold candidate (picks === 0).
+ *  Used by ucbScore to dampen scores when cold picks are clustering. */
+const coldPickTimestamps: number[] = [];
+
 /**
  * Consult recorded gap-failure lessons to down-weight routing candidates
  * that have already produced semantic_reject outcomes. Returns a set of
@@ -3209,15 +3213,10 @@ function ucbScoreImpl(
   if (m) pruneStaleOutcomes(m); // V27: ensure stale outcomes don't poison the score
   const picks = m?.outcomes.length ?? 0;
   if (picks === 0) {
-    // Unsampled (or fully-decayed) templates get a finite cold-start score so
-    // priority/urgency weights (pw > 1.0) can still compete with them.
-    // Cold-start damping: when many templates are unsampled, each individual
-    // cold template's score is divided by sqrt(coldPoolSize) so a large cold
-    // pool cannot collectively monopolize selection over sampled templates.
-    const unpickedCount = [...momentumByTemplate.values()].filter((m) => m.outcomes.length === 0).length + 1;
-    const coldPoolSize = Math.max(unpickedCount, 1);
-    const dampingFactor = 1 / Math.sqrt(coldPoolSize);
-    return { score: (IDLE_REWARD + 1.4 * explorationBoost) * Math.max(shapeAvail, 1) * pw * dampingFactor, reason: `ucb=cold picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""} damp=${dampingFactor.toFixed(3)}` };
+    const now = Date.now();
+    const coldCrowd = coldPickTimestamps.filter((t) => now - t <= 60_000).length;
+    const explorationBonus = (IDLE_REWARD + 1.4 * explorationBoost) * Math.max(shapeAvail, 1) * pw;
+    return { score: explorationBonus / (1 + coldCrowd), reason: `ucb=cold picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""} coldCrowd=${coldCrowd}` };
   }
   // V28: mean = average information-yield reward (not success fraction), so UCB
   // exploits detectors that actually produce findings.
@@ -3834,6 +3833,11 @@ async function poolLoop(): Promise<void> {
       const shapePick = await pickByShapeAvailability(inFlightTemplateIds);
       if (shapePick) {
         const reserveId = `reserve-shape-${Date.now()}`;
+        const shapePickMomentum = momentumByTemplate.get(shapePick.template_id);
+        const shapePickPicks = shapePickMomentum?.outcomes.length ?? 0;
+        if (shapePickPicks === 0) {
+          coldPickTimestamps.push(Date.now());
+        }
         inFlight.set(reserveId, {
           goal_idx: -1, // sentinel: shape-driven dispatch, not goal-index
           dispatch_id: reserveId,
