@@ -3171,6 +3171,34 @@ let totalPicksV24f = 0;
 // a health-repair tick outscores routine ticks. weight=1 ⇒ score is identical
 // to the pre-C9 value (behavior-preserving when nothing is urgent).
 function ucbScore(
+  exploitation: number,
+  nTotal: number,
+  nChosen: number,
+): number;
+function ucbScore(
+  templateId: string,
+  shapeAvail: number,
+  priorityWeight?: number,
+  unpickedCount?: number,
+): { score: number; reason: string };
+function ucbScore(
+  templateIdOrExploitation: string | number,
+  shapeAvailOrNTotal: number,
+  priorityWeightOrNChosen?: number,
+  unpickedCount: number = 1,
+): number | { score: number; reason: string } {
+  if (typeof templateIdOrExploitation === 'number') {
+    const exploitation = templateIdOrExploitation;
+    const nTotal = shapeAvailOrNTotal;
+    const nChosen = priorityWeightOrNChosen ?? 0;
+    return exploitation + Math.sqrt((2 * Math.log(nTotal + 1)) / (nChosen + 1));
+  }
+  const templateId = templateIdOrExploitation;
+  const shapeAvail = shapeAvailOrNTotal;
+  const priorityWeight = priorityWeightOrNChosen ?? 1.0;
+  return ucbScoreImpl(templateId, shapeAvail, priorityWeight, unpickedCount);
+}
+function ucbScoreImpl(
   templateId: string,
   shapeAvail: number,
   priorityWeight = 1.0,
