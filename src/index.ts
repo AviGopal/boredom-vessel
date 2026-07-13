@@ -3397,11 +3397,55 @@ async function pickByShapeAvailability(
 
 // Dispatch by template_id via light-dispatch (uses existing infrastructure).
 // Returns { dispatch_id, execution_id, success } shaped like dispatchOne.
+async function fetchTemplateRequiredUnboundVariables(templateId: string): Promise<string[] | null> {
+  try {
+    const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/templates/${encodeURIComponent(templateId)}`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return null;
+    const body = await res.json() as { variables?: Array<{ name: string; required?: boolean; default?: unknown }> };
+    const vars = body.variables;
+    if (!Array.isArray(vars)) return null;
+    const unbound = vars
+      .filter((v) => v.required === true && v.default === undefined && v.default === null ? false : v.required === true && !("default" in v))
+      .map((v) => v.name);
+    return unbound;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTemplateRequiredUnboundVariablesActivity(templateId: string): Promise<string[] | null> {
+  try {
+    const res = await fetch(
+      `${ACTIVITY_API_ENDPOINT}/v2/activities/templates/${encodeURIComponent(templateId)}`,
+      { headers: authHeaders(), signal: AbortSignal.timeout(5_000) },
+    );
+    if (!res.ok) return null;
+    const body = await res.json() as { template?: { variables?: Array<{ name?: string; required?: boolean; default?: unknown }> } };
+    const vars = body?.template?.variables ?? [];
+    return vars
+      .filter((v) => v.required === true && (v.default === undefined || v.default === null || v.default === ""))
+      .map((v) => v.name ?? "(unnamed)");
+  } catch {
+    return null;
+  }
+}
+
 async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: string; execution_id?: string; success: boolean } | null> {
   // V30: dispatch wall-clock IS the cost actual the pool experiences (it blocks the
   // loop for this duration). Declared before the try so the catch path (timeouts —
   // legitimately expensive) records cost too. Validates against expectedCostMs.
   const costT0 = Date.now();
+  const unboundVars = await fetchTemplateRequiredUnboundVariables(templateId);
+  if (unboundVars !== null && unboundVars.length > 0) {
+    console.warn(
+      `[boredom] dispatchByTemplateId: skipping ${templateId} — required variables with no defaults: ${unboundVars.join(", ")}`,
+    );
+    return null;
+  }
   try {
     const res = await fetch(`${LIGHT_DISPATCH_ENDPOINT}/dispatch`, {
       method: "POST",
