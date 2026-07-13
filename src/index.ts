@@ -75,7 +75,7 @@ let lastSelectionSnapshotAt = 0;
 async function writeBoredomSelectionSnapshot(input: { candidates?: unknown[]; selected?: unknown[] }): Promise<void> {
   let open_gap_count = 0;
   try {
-    const gapRes = await fetch(`${DEV_VESSEL_ENDPOINT}/resolve`, {
+    const gapRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
       body: JSON.stringify({ impulse: { pointer: { type: "substrateGap", status: "open", limit: 1 } } }),
@@ -91,7 +91,7 @@ async function writeBoredomSelectionSnapshot(input: { candidates?: unknown[]; se
 
   let rhythms_consulted: unknown[] = [];
   try {
-    const rhythmRes = await fetch(`${DEV_VESSEL_ENDPOINT}/resolve`, {
+    const rhythmRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
       body: JSON.stringify({ impulse: { type: "poolImpulse", shape: "timeShapedRhythm", limit: 50 } }),
@@ -106,7 +106,7 @@ async function writeBoredomSelectionSnapshot(input: { candidates?: unknown[]; se
   }
 
   try {
-    await fetch(`${DEV_VESSEL_ENDPOINT}/resolve`, {
+    await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
       body: JSON.stringify({
