@@ -69,6 +69,66 @@ const coldPickTimestamps: number[] = [];
  * that have already produced semantic_reject outcomes. Returns a set of
  * gap_ids that should be skipped in the current dispatch cycle.
  */
+// Law 5 observability: each tick's condition-driven selection is published as a boredomSelectionSnapshot pool impulse.
+async function writeBoredomSelectionSnapshot(input: { candidates?: unknown[]; selected?: unknown[] }): Promise<void> {
+  let open_gap_count = 0;
+  try {
+    const gapRes = await fetch(`${DEV_VESSEL_ENDPOINT}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { pointer: { type: "substrateGap", status: "open", limit: 1 } } }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (gapRes.ok) {
+      const gapBody = await gapRes.json() as { total?: number; gaps?: unknown[] };
+      open_gap_count = gapBody.total ?? gapBody.gaps?.length ?? 0;
+    }
+  } catch (err) {
+    console.warn("[boredom] writeBoredomSelectionSnapshot: gap query failed", err);
+  }
+
+  let rhythms_consulted: unknown[] = [];
+  try {
+    const rhythmRes = await fetch(`${DEV_VESSEL_ENDPOINT}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { type: "poolImpulse", shape: "timeShapedRhythm", limit: 50 } }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (rhythmRes.ok) {
+      const rhythmBody = await rhythmRes.json() as { items?: unknown[]; results?: unknown[] };
+      rhythms_consulted = rhythmBody.items ?? rhythmBody.results ?? [];
+    }
+  } catch (err) {
+    console.warn("[boredom] writeBoredomSelectionSnapshot: rhythm query failed", err);
+  }
+
+  try {
+    await fetch(`${DEV_VESSEL_ENDPOINT}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({
+        impulse: {
+          pointer: {
+            type: "poolImpulse_write",
+            shape: "boredomSelectionSnapshot",
+            record: {
+              tick_at: new Date().toISOString(),
+              conditions: { open_gap_count },
+              rhythms_consulted,
+              candidates: input.candidates ?? [],
+              selected: input.selected ?? [],
+            },
+          },
+        },
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    console.warn("[boredom] writeBoredomSelectionSnapshot: write failed", err);
+  }
+}
+
 async function buildSkipSetFromLessons(failureClass: string): Promise<Set<string>> {
   const lessons = await getGapFailureLessons();
   return new Set(
@@ -1295,6 +1355,7 @@ async function selectGoalForLoadConditioned(
     const draw = sampleBeta(cell.alpha + 1, cell.beta + 1);
     if (draw > bestDraw) { bestDraw = draw; bestIdx = idx; }
   }
+  void writeBoredomSelectionSnapshot({ candidates: eligible.map((idx) => ({ idx, score: sampleBeta((posteriors.get(idx)?.alpha ?? 0) + 1, (posteriors.get(idx)?.beta ?? 0) + 1) })), selected: [{ idx: bestIdx }] });
   return { goalIdx: bestIdx, mode: "thompson", signature, cellsExamined: posteriors.size };
 }
 
