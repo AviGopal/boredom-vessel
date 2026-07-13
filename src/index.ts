@@ -70,6 +70,8 @@ const coldPickTimestamps: number[] = [];
  * gap_ids that should be skipped in the current dispatch cycle.
  */
 // Law 5 observability: each tick's condition-driven selection is published as a boredomSelectionSnapshot pool impulse.
+let lastSelectionSnapshotAt = 0;
+
 async function writeBoredomSelectionSnapshot(input: { candidates?: unknown[]; selected?: unknown[] }): Promise<void> {
   let open_gap_count = 0;
   try {
@@ -3957,6 +3959,13 @@ async function poolLoop(): Promise<void> {
           `[pool/shape] reserving ${shapePick.template_id} score=${shapePick.score.toFixed(2)} ` +
           `(${shapePick.reason}) in_flight=${inFlight.size}/${MAX_CONCURRENT}`,
         );
+        if (Date.now() - lastSelectionSnapshotAt > 60_000) {
+          lastSelectionSnapshotAt = Date.now();
+          void writeBoredomSelectionSnapshot({
+            candidates: [{ template_id: shapePick.template_id, score: shapePick.score, reason: shapePick.reason }],
+            selected: [{ template_id: shapePick.template_id, dispatch_id: reserveId }],
+          });
+        }
         void (async () => {
           try {
             const skipSet = await buildSkipSetFromLessons("semantic_reject");
