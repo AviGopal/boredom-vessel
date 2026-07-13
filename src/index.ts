@@ -32,26 +32,6 @@ const LIGHT_DISPATCH_ENDPOINT = process.env.LIGHT_DISPATCH_ENDPOINT ?? "http://1
 // gap-failure lesson skip set is built per dispatch cycle via buildSkipSetFromLessons
 // semantic_reject outcomes update per-gap failure lessons via handleDispatchGapFailure
 // vessel-addition-scaffold-dispatch: wired into dispatch pool — awaited inside runBoredomPass
-async function dispatchVesselAdditionScaffold_impl(): Promise<void> {
-  try {
-    const result = await resolveVesselAdditionScaffoldDispatch({
-      llm_completion_dispatch: async (input: { prompt: string }): Promise<string> => {
-        const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
-          body: JSON.stringify({ targetTemplateId: "dev-vessel:llm-completion", variables: { prompt: input.prompt } }),
-          signal: AbortSignal.timeout(60_000),
-        });
-        if (!res.ok) throw new Error(`llm_completion_dispatch failed: ${res.status}`);
-        const data = await res.json() as { result?: { text?: string }; text?: string };
-        return data?.result?.text ?? data?.text ?? "";
-      },
-    });
-    console.log(`[boredom] vessel-addition-scaffold dispatched: ${result.body.vessel_name} at ${result.body.dispatched_at}`);
-  } catch (err) {
-    console.warn("[boredom] vessel-addition-scaffold-dispatch error:", err);
-  }
-}
 const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
 const API_KEY = process.env.METABOB_API_KEY ?? "";
 const IDLE_WINDOW_SECONDS = parseInt(process.env.BOREDOM_IDLE_WINDOW_SECONDS ?? "300", 10);
@@ -1790,7 +1770,7 @@ async function dispatchVesselAdditionScaffold(): Promise<void> {
 
 async function main(): Promise<void> {
   console.log("[boredom-vessel] tick start");
-  await dispatchVesselAdditionScaffold_impl();
+  await dispatchVesselAdditionScaffold();
 
   // Run auto-promote scan first — independent of idle check. Substrate-authored
   // proposed templates that accumulated real empirical evidence get promoted
