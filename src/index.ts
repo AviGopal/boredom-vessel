@@ -112,7 +112,7 @@ async function writeBoredomSelectionSnapshot(input: { candidates?: unknown[]; se
           pointer: {
             type: "poolImpulse_write",
             shape: "boredomSelectionSnapshot",
-            record: {
+            body: {
               tick_at: new Date().toISOString(),
               conditions: { open_gap_count },
               rhythms_consulted,
