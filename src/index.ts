@@ -334,20 +334,19 @@ function sampleExternalGoal(tick: number): string | null {
     const filePath = `${root}/validation/generated/rolling-pool.json`;
     const { readFileSync } = require("node:fs") as typeof import("node:fs");
     const raw = readFileSync(filePath, "utf-8");
-    const parsed = JSON.parse(raw) as Record<string, Array<{ goal?: string; prompt?: string; text?: string } | string>>;
+        const parsed = JSON.parse(raw) as {
+      weeks?: Record<string, {
+        goals?: Array<{ goal?: string; prompt?: string; text?: string } | string>;
+      }>;
+    };
     const weeks = Object.values(parsed);
     const flat: string[] = [];
-    for (const week of weeks) {
-      for (const entry of week) {
-        if (typeof entry === "string") {
-          flat.push(entry);
-        } else {
+    for (const week of Object.values(parsed.weeks ?? {})) {
+      for (const entry of (week.goals ?? [])) {
+        if (typeof entry === "string") flat.push(entry);
+        else {
           const text = entry.goal ?? entry.prompt ?? entry.text;
-          if (text !== undefined) {
-            flat.push(text);
-          } else {
-            flat.push(String(entry));
-          }
+          flat.push(text !== undefined ? text : String(entry));
         }
       }
     }
