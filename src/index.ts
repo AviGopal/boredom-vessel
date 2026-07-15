@@ -86,21 +86,27 @@ async function writeBoredomSelectionSnapshot(input: { candidates?: unknown[]; se
   }
 
   try {
-    await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/publish`, {
+    const tick_at = new Date().toISOString();
+    const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
       body: JSON.stringify({
-        shape: "boredomSelectionSnapshot",
-        body: {
-          tick_at: new Date().toISOString(),
-          conditions: { open_gap_count },
-          rhythms_consulted,
-          candidates: input.candidates ?? [],
-          selected: input.selected ?? [],
+        impulse: {
+          type: "poolImpulse_write",
+          shape: "boredomSelectionSnapshot",
+          source: "boredom-vessel",
+          body: {
+            tick_at,
+            conditions: { open_gap_count },
+            rhythms_consulted,
+            candidates: input.candidates ?? [],
+            selected: input.selected ?? [],
+          },
         },
       }),
       signal: AbortSignal.timeout(10_000),
     });
+    if (!res.ok) console.warn("[boredom] writeBoredomSelectionSnapshot: write failed", res.status, res.statusText);
   } catch (err) {
     console.warn("[boredom] writeBoredomSelectionSnapshot: publish failed", err);
   }
