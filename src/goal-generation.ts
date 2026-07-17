@@ -10,10 +10,11 @@ export async function generateGapGoalCandidates(
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return [];
-    const body = (await res.json()) as {
+    const json = (await res.json()) as {
+      body?: { gaps?: Array<{ id: string; summary: string; gap_subtype?: string }> };
       gaps?: Array<{ id: string; summary: string; gap_subtype?: string }>;
     };
-    const gaps = body.gaps ?? [];
+    const gaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; gap_subtype?: string }>;
     const seen = new Set<string>();
     const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated" }> = [];
     for (const g of gaps) {
