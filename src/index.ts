@@ -2688,7 +2688,13 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
         tags,
       });
     }
-    candidateCache = { fetchedAt: Date.now(), entries };
+    try {
+    const gapGoals = await generateGapGoalCandidates(ACTIVITY_API_ENDPOINT, API_KEY);
+    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [] });
+  } catch {
+    /* fail open */
+  }
+  candidateCache = { fetchedAt: Date.now(), entries };
     return entries;
   } catch {
     return candidateCache?.entries ?? [];
