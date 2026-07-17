@@ -3,7 +3,8 @@ export async function generateGapGoalCandidates(
   apiKey: string,
 ): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated" }>> {
   try {
-    const res = await fetch("http://127.0.0.1:8090/v2/impulses/resolve", {
+    const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
+    const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${apiKey}` },
       body: JSON.stringify({ impulse: { type: "substrateGap", status: "open", limit: 20 } }),
