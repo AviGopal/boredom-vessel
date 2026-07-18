@@ -15,7 +15,9 @@ export async function generateGapGoalCandidates(
       body?: { gaps?: Array<{ id: string; summary: string; gap_subtype?: string }> };
       gaps?: Array<{ id: string; summary: string; gap_subtype?: string }>;
     };
-    const gaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; gap_subtype?: string }>;
+    const gaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; gap_subtype?: string; category?: string; detected_at?: string }>;
+    const CATEGORY_WEIGHT: Record<string, number> = { missing_capability: 3, unreachable_producer: 2.5, operational_health: 2.5, detector_coverage_gap: 2, decision_without_action: 2, posterior_consistency_drift: 1.5, architectural_pattern: 1.5, residual_shape_proposal: 1, orphaned_capability: 0.5 };
+    gaps.sort((a, b) => { const wa = CATEGORY_WEIGHT[a.category ?? ""] ?? 1; const wb = CATEGORY_WEIGHT[b.category ?? ""] ?? 1; if (wb !== wa) return wb - wa; return String(b.detected_at ?? "").localeCompare(String(a.detected_at ?? "")); });
     let activeGoals = new Set<string>();
     try {
       const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_ENDPOINT ?? "http://127.0.0.1:8210";
