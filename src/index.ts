@@ -3361,7 +3361,13 @@ async function pickByShapeAvailability(
   const candidates = await fetchShapeDrivenCandidates();
   if (candidates.length === 0) return null;
   const recentShapes = await fetchRecentlyProducedShapes();
-  const eligible = candidates.filter((c) => !inFlightTemplateIds.has(c.template_id));
+  const eligible = candidates.filter((c) =>
+    !inFlightTemplateIds.has(c.template_id) &&
+    // Cooled gap-goal arms are not candidates at all: returning null from the
+    // dispatcher without recording an outcome would leave their inflated
+    // posterior winning every draw in a reserve->null hot loop.
+    !(c.template_id.startsWith("gap-goal:") &&
+      Date.now() - (gapGoalLastDispatchAt.get(c.template_id) ?? 0) < GAP_GOAL_COOLDOWN_MS));
   if (eligible.length === 0) return null;
 
   const coldPool = eligible.filter((c) => (momentumByTemplate.get(c.template_id)?.outcomes.length ?? 0) === 0);
