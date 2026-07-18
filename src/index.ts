@@ -25,7 +25,6 @@
  */
 
 import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditionScaffoldDispatch";
-import { generateGapGoalCandidates } from "./goal-generation";
 
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
 const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
@@ -2641,7 +2640,6 @@ interface ShapeDrivenCandidate {
   input_shapes: string[];
   output_shapes: string[];
   tags: string[];
-  goal_text?: string;
 }
 
 interface ShapeDrivenPick {
@@ -2663,14 +2661,25 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
     // ("boredomtargettemplate" — activity-api strips underscores from tag
     // tokens) so we get all boredom-target templates regardless of total
     // template count. Returns ~37 vs the 13 the first-page query missed.
-    const res = await fetch(`${ACTIVITY_API_ENDPOINT}/v2/activities/templates?q=boredomtargettemplate&limit=200`, {
-      headers: { Authorization: `ApiKey ${API_KEY}` },
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!res.ok) return candidateCache?.entries ?? [];
-    const body = await res.json() as { templates?: Array<Record<string, unknown>> };
+    // activity-api caps every page at 100 rows ordered created_at ASC, and the
+    // q= FTS matches nearly all templates — reading only page one froze the
+    // candidate set at the 100 oldest templates (nothing minted after
+    // 2026-07-12 could ever enter selection). Paginate until a short page.
+    const pages: Array<Record<string, unknown>> = [];
+    for (let offset = 0; offset < 2000; offset += 100) {
+      const res = await fetch(`${ACTIVITY_API_ENDPOINT}/v2/activities/templates?q=boredomtargettemplate&limit=100&offset=${offset}`, {
+        headers: { Authorization: `ApiKey ${API_KEY}` },
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!res.ok) break;
+      const body = await res.json() as { templates?: Array<Record<string, unknown>> };
+      const page = body.templates ?? [];
+      pages.push(...page);
+      if (page.length < 100) break;
+    }
+    if (pages.length === 0) return candidateCache?.entries ?? [];
     const entries: ShapeDrivenCandidate[] = [];
-    for (const t of body.templates ?? []) {
+    for (const t of pages) {
       const tags = Array.isArray(t.tags) ? (t.tags as string[]) : [];
       // Match both literal and tag-prefix-normalized forms.
       const isBoredomTarget =
@@ -2689,13 +2698,7 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
         tags,
       });
     }
-    try {
-    const gapGoals = await generateGapGoalCandidates(ACTIVITY_API_ENDPOINT, API_KEY);
-    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText });
-  } catch {
-    /* fail open */
-  }
-  candidateCache = { fetchedAt: Date.now(), entries };
+    candidateCache = { fetchedAt: Date.now(), entries };
     return entries;
   } catch {
     return candidateCache?.entries ?? [];
@@ -3432,29 +3435,6 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
   // loop for this duration). Declared before the try so the catch path (timeouts —
   // legitimately expensive) records cost too. Validates against expectedCostMs.
   const costT0 = Date.now();
-  if (templateId.startsWith("gap-goal:")) {
-    const cand = candidateCache?.entries.find((e) => e.template_id === templateId);
-    if (cand?.goal_text) {
-      try {
-        const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
-          body: JSON.stringify({ goal: cand.goal_text, tags: ["boredom_autonomous", "gap_generated"] }),
-          signal: AbortSignal.timeout(30_000),
-        });
-        recordCostByTemplate(templateId, Date.now() - costT0, 0);
-        recordOutcomeByTemplate(templateId, res.ok || res.status === 202);
-        if (!res.ok && res.status !== 202) return null;
-        const body = await res.json() as { dispatchId?: string };
-        return { dispatch_id: body.dispatchId ?? "gap-goal-dispatch", success: true };
-      } catch {
-        recordCostByTemplate(templateId, Date.now() - costT0, 0);
-        recordOutcomeByTemplate(templateId, false);
-        return null;
-      }
-    }
-    return null;
-  }
   const unboundVars = await fetchTemplateRequiredUnboundVariables(templateId);
   if (unboundVars !== null && unboundVars.length > 0) {
     console.warn(
