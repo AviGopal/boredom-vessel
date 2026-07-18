@@ -3439,6 +3439,10 @@ async function fetchTemplateRequiredUnboundVariablesActivity(templateId: string)
   }
 }
 
+const GAP_GOAL_COOLDOWN_MS = parseInt(process.env.GAP_GOAL_COOLDOWN_MS ?? "600000", 10);
+const GAP_GOAL_GRADE_DELAY_MS = parseInt(process.env.GAP_GOAL_GRADE_DELAY_MS ?? "180000", 10);
+const gapGoalLastDispatchAt = new Map<string, number>();
+
 async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: string; execution_id?: string; success: boolean } | null> {
   // V30: dispatch wall-clock IS the cost actual the pool experiences (it blocks the
   // loop for this duration). Declared before the try so the catch path (timeouts —
@@ -3447,6 +3451,16 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
   if (templateId.startsWith("gap-goal:")) {
     const cand = candidateCache?.entries.find((e) => e.template_id === templateId);
     if (cand?.goal_text) {
+      // Wirehead guard (gap boredom-gap-goal-grades-dispatch-post-not-reach):
+      // grading the POST 202 as success inflated these arms to mean=1.00 at
+      // ~50ms cost — they monopolized selection (80/106 reservations observed
+      // 2026-07-18) and refilled goal-host with duplicate gap goals. Two
+      // changes: a per-gap-goal dispatch cooldown, and the outcome deferred to
+      // the dispatch's reached verdict (single later poll of activeDispatches;
+      // a walk still running at grade time counts as failure — conservative,
+      // biases against dispatch spam). The POST itself records cost only.
+      const lastAt = gapGoalLastDispatchAt.get(templateId) ?? 0;
+      if (Date.now() - lastAt < GAP_GOAL_COOLDOWN_MS) return null;
       try {
         const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
           method: "POST",
@@ -3455,10 +3469,31 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
           signal: AbortSignal.timeout(30_000),
         });
         recordCostByTemplate(templateId, Date.now() - costT0, 0);
-        recordOutcomeByTemplate(templateId, res.ok || res.status === 202);
-        if (!res.ok && res.status !== 202) return null;
+        if (!res.ok && res.status !== 202) {
+          recordOutcomeByTemplate(templateId, false);
+          return null;
+        }
+        gapGoalLastDispatchAt.set(templateId, Date.now());
         const body = await res.json() as { dispatchId?: string };
-        return { dispatch_id: body.dispatchId ?? "gap-goal-dispatch", success: true };
+        const dispatchId = body.dispatchId ?? "";
+        if (dispatchId) {
+          setTimeout(async () => {
+            try {
+              const st = await fetch(`${GOAL_HOST_ENDPOINT}/resolve`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+                body: JSON.stringify({ impulse: { pointer: { type: "activeDispatches" } } }),
+                signal: AbortSignal.timeout(10_000),
+              });
+              const sj = await st.json() as { body?: { dispatches?: Array<{ dispatchId?: string; reached?: boolean | null }> } };
+              const rec = (sj.body?.dispatches ?? []).find((d) => d.dispatchId === dispatchId);
+              recordOutcomeByTemplate(templateId, rec?.reached === true);
+            } catch {
+              recordOutcomeByTemplate(templateId, false);
+            }
+          }, GAP_GOAL_GRADE_DELAY_MS).unref?.();
+        }
+        return { dispatch_id: dispatchId || "gap-goal-dispatch", success: true };
       } catch {
         recordCostByTemplate(templateId, Date.now() - costT0, 0);
         recordOutcomeByTemplate(templateId, false);
