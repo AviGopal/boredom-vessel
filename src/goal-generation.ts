@@ -7,7 +7,7 @@ export async function generateGapGoalCandidates(
     const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${apiKey}` },
-      body: JSON.stringify({ impulse: { type: "substrateGap", status: "open", limit: 20 } }),
+      body: JSON.stringify({ impulse: { type: "substrateGap", status: "open", limit: 100 } }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return [];
