@@ -25,6 +25,7 @@
  */
 
 import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditionScaffoldDispatch";
+import { generateGapGoalCandidates } from "./goal-generation";
 
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
 const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
@@ -2640,6 +2641,7 @@ interface ShapeDrivenCandidate {
   input_shapes: string[];
   output_shapes: string[];
   tags: string[];
+  goal_text?: string;
 }
 
 interface ShapeDrivenPick {
@@ -2672,14 +2674,15 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
         signal: AbortSignal.timeout(5_000),
       });
       if (!res.ok) break;
-      const body = await res.json() as { templates?: Array<Record<string, unknown>> };
-      const page = body.templates ?? [];
+      const bodyPage = await res.json() as { templates?: Array<Record<string, unknown>> };
+      const page = bodyPage.templates ?? [];
       pages.push(...page);
       if (page.length < 100) break;
     }
     if (pages.length === 0) return candidateCache?.entries ?? [];
+    const body = { templates: pages } as { templates?: Array<Record<string, unknown>> };
     const entries: ShapeDrivenCandidate[] = [];
-    for (const t of pages) {
+    for (const t of body.templates ?? []) {
       const tags = Array.isArray(t.tags) ? (t.tags as string[]) : [];
       // Match both literal and tag-prefix-normalized forms.
       const isBoredomTarget =
@@ -2698,7 +2701,13 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
         tags,
       });
     }
-    candidateCache = { fetchedAt: Date.now(), entries };
+    try {
+    const gapGoals = await generateGapGoalCandidates(ACTIVITY_API_ENDPOINT, API_KEY);
+    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText });
+  } catch {
+    /* fail open */
+  }
+  candidateCache = { fetchedAt: Date.now(), entries };
     return entries;
   } catch {
     return candidateCache?.entries ?? [];
@@ -3435,6 +3444,29 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
   // loop for this duration). Declared before the try so the catch path (timeouts —
   // legitimately expensive) records cost too. Validates against expectedCostMs.
   const costT0 = Date.now();
+  if (templateId.startsWith("gap-goal:")) {
+    const cand = candidateCache?.entries.find((e) => e.template_id === templateId);
+    if (cand?.goal_text) {
+      try {
+        const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+          body: JSON.stringify({ goal: cand.goal_text, tags: ["boredom_autonomous", "gap_generated"] }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        recordCostByTemplate(templateId, Date.now() - costT0, 0);
+        recordOutcomeByTemplate(templateId, res.ok || res.status === 202);
+        if (!res.ok && res.status !== 202) return null;
+        const body = await res.json() as { dispatchId?: string };
+        return { dispatch_id: body.dispatchId ?? "gap-goal-dispatch", success: true };
+      } catch {
+        recordCostByTemplate(templateId, Date.now() - costT0, 0);
+        recordOutcomeByTemplate(templateId, false);
+        return null;
+      }
+    }
+    return null;
+  }
   const unboundVars = await fetchTemplateRequiredUnboundVariables(templateId);
   if (unboundVars !== null && unboundVars.length > 0) {
     console.warn(
