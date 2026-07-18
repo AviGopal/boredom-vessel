@@ -2500,6 +2500,7 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
         "reality-modeling": ["substrate_health_tick", "learned_topology_snapshot", "coverage_tick"],
         "data-management": ["docs_align_scan", "docsAlignReport"],
         "human-interacting": ["obsidian_request_scan", "solicitation_outcome_scan"],
+        "self-maintenance": ["detect_vessel_code_drift", "vesselCodeDrift", "self_update_tick"],
       };
       let actionableCount = 0;
       let topFamily = "";
