@@ -26,9 +26,9 @@ export async function generateGapGoalCandidates(
         signal: AbortSignal.timeout(10_000),
       });
       if (dispatchRes.ok) {
-        const dispatchJson = (await dispatchRes.json()) as { body?: { dispatches?: string[] } };
+        const dispatchJson = (await dispatchRes.json()) as { body?: { dispatches?: Array<{ goal?: string | null }> } };
         const dispatches = dispatchJson.body?.dispatches ?? [];
-        activeGoals = new Set(dispatches.map((d) => d));
+        activeGoals = new Set(dispatches.map((d) => d.goal).filter((g): g is string => typeof g === "string"));
       }
     } catch {
       // fail-open: use empty Set on any failure
