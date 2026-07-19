@@ -45,6 +45,7 @@ export async function generateGapGoalCandidates(
       if (seen.has(g.id)) continue;
       seen.add(g.id);
       const firstSentence = g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary;
+      if (g.gap_subtype === "per_gap_failure_lessons_updated") continue;
       out.push({
         templateId: `gap-goal:${g.id}`,
         goalText: `Close substrate gap ${g.id}: ${firstSentence}`,
