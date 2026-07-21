@@ -38,6 +38,25 @@ export async function generateGapGoalCandidates(
     const seen = new Set<string>();
     const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated" }> = [];
     for (const g of gaps) {
+      // Baseline doom-signal -> pull_cutover repair goal (escalation seam WIRE 2):
+      // the generic "capability|repair" filter below drops these, so handle them
+      // first. pull_cutover re-syncs the vessel runtime to origin/dev — the baseline
+      // gap's remedy. The gap-goal: prefix routes to /run-goal (dispatchByTemplateId)
+      // and the pull_cutover substring makes it a gap-drain candidate (priority floor).
+      if (g.id.startsWith("baseline-typecheck-broken-")) {
+        if (seen.has(g.id)) continue;
+        seen.add(g.id);
+        const vm = g.summary.match(/baseline of (\S+) failing/);
+        const vessel = (vm ? vm[1] : g.id.replace(/^baseline-typecheck-broken-/, "")).replace(/^repos\//, "");
+        out.push({
+          templateId: `gap-goal:pull_cutover:${g.id}`,
+          goalText: `run the pull_cutover activity for vessel ${vessel} to converge it to the latest origin/dev`,
+          shapes: [],
+          source: "gap_generated",
+        });
+        if (out.length >= 5) break;
+        continue;
+      }
       if (g.gap_subtype === "gap_backlog_unhealthy") continue;
       if (g.id.startsWith("auto_draft_decision")) continue;
       if (Array.from(activeGoals).some((goal) => goal.startsWith(`Close substrate gap ${g.id}`))) continue;
