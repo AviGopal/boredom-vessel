@@ -2179,6 +2179,8 @@ const GAP_DRAIN_ID_MARKERS = [
   "apply-proposal-as-patch",
   "self-operational-health",
   "operational-health",
+  "pull_cutover",
+  "pull-cutover",
 ];
 
 function isGapDrainCandidate(templateId: string, tags: string[]): boolean {
@@ -2187,11 +2189,16 @@ function isGapDrainCandidate(templateId: string, tags: string[]): boolean {
 }
 
 function gapPriorityWeight(g: {
+  id?: string | null;
   status?: string;
   severity?: string | null;
   priority_hint?: string | null;
   category?: string | null;
 }): number {
+  // Baseline doom-signal (escalation seam): a broken-typecheck gap escalates to
+  // HIGH so the pull_cutover repair goal is preferred over routine work — the
+  // system self-maintains its own baseline (law 6).
+  if ((g.id ?? "").toString().startsWith("baseline-typecheck-broken-")) return PRIORITY_WEIGHT_HIGH;
   // explicit severity / priority_hint wins
   const sev = (g.severity ?? "").toString().toLowerCase();
   const hint = (g.priority_hint ?? "").toString().toLowerCase();
@@ -2323,10 +2330,11 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
   const nextPriorityByShape = new Map<string, number>();
   let nextFloor = 1.0;
   try {
-    const gapsRaw = await fs.readFile("/workspace/gaps.json", "utf8").catch(() => "");
+    const gapsRaw = await fs.readFile("/workspace/gaps/gaps.json", "utf8").catch(() => "");
     if (gapsRaw) {
       const parsed = JSON.parse(gapsRaw) as {
         gaps?: Array<{
+          id?: string;
           status?: string;
           scenario_id?: string;
           severity?: string | null;
