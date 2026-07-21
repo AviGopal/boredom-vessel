@@ -2332,18 +2332,12 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
   try {
     const gapsRaw = await fs.readFile("/workspace/gaps/gaps.json", "utf8").catch(() => "");
     if (gapsRaw) {
-      const parsed = JSON.parse(gapsRaw) as {
-        gaps?: Array<{
-          id?: string;
-          status?: string;
-          scenario_id?: string;
-          severity?: string | null;
-          priority_hint?: string | null;
-          category?: string | null;
-          expected_output_shapes?: string[];
-        }>;
-      };
-      const gaps = parsed.gaps ?? [];
+      type GapRow = { id?: string; status?: string; scenario_id?: string; severity?: string | null; priority_hint?: string | null; category?: string | null; expected_output_shapes?: string[] };
+      const parsed = JSON.parse(gapsRaw) as GapRow[] | { gaps?: GapRow[] };
+      // The gap store is a FLAT JSON array (substrate-gap.ts); tolerate the
+      // {gaps:[]} envelope too, matching gap-lifecycle-scan's reader — otherwise
+      // parsed.gaps is undefined for the array form and C9 reads nothing.
+      const gaps: GapRow[] = Array.isArray(parsed) ? parsed : (parsed.gaps ?? []);
       const isOpen = (g: { status?: string }) => g.status !== "closed" && g.status !== "resolved" && g.status !== "rejected";
       openGapCount = gaps.filter(isOpen).length;
       const scenarios = await fs.readdir(SCENARIOS_DIR).catch(() => [] as string[]);
