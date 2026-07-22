@@ -72,7 +72,7 @@ export async function generateGapGoalCandidates(
       out.push({
         templateId: `gap-goal:${g.id}`,
         goalText: `Close substrate gap ${g.id}: ${firstSentence}`,
-        shapes: [],
+        shapes: ["canonicalized_gap_identity"],
         source: "gap_generated",
       });
       if (out.length >= 5) break;
