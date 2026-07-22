@@ -40,8 +40,12 @@ export async function generateGapGoalCandidates(
       // fail-open: use empty Set on any failure
     }
     const seen = new Set<string>();
+    const gapSignatures = new Set<string>();
     const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated" }> = [];
     for (const g of gaps) {
+      const sig = `${g.gap_subtype ?? ""}:${g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary}`.toLowerCase().replace(/\s+/g, " ");
+      if (gapSignatures.has(sig)) continue;
+      gapSignatures.add(sig);
       // Baseline doom-signal -> pull_cutover repair goal (escalation seam WIRE 2):
       // the generic "capability|repair" filter below drops these, so handle them
       // first. pull_cutover re-syncs the vessel runtime to origin/dev — the baseline
