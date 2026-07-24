@@ -1,7 +1,7 @@
 export async function generateGapGoalCandidates(
   activityApiEndpoint: string,
   apiKey: string,
-): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string }>> {
+): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string } }>> {
   try {
     const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
     const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
@@ -41,7 +41,7 @@ export async function generateGapGoalCandidates(
     }
     const seen = new Set<string>();
     const gapSignatures = new Set<string>();
-    const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string }> = [];
+    const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string; } }> = [];
     for (const g of gaps) {
       const sig = `${g.gap_subtype ?? ""}:${g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary}`.toLowerCase().replace(/\s+/g, " ");
       if (gapSignatures.has(sig)) continue;
@@ -62,6 +62,7 @@ export async function generateGapGoalCandidates(
           shapes: [],
           source: "gap_generated",
           gapId: g.id,
+          classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
         });
         if (out.length >= 5) break;
         continue;
@@ -80,6 +81,7 @@ export async function generateGapGoalCandidates(
         shapes: ["canonicalized_gap_identity"],
         source: "gap_generated",
         gapId: g.id,
+        classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
       });
       if (out.length >= 5) break;
     }
