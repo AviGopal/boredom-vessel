@@ -1,7 +1,7 @@
 export async function generateGapGoalCandidates(
   activityApiEndpoint: string,
   apiKey: string,
-): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated" }>> {
+): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string }>> {
   try {
     const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
     const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
@@ -41,7 +41,7 @@ export async function generateGapGoalCandidates(
     }
     const seen = new Set<string>();
     const gapSignatures = new Set<string>();
-    const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated" }> = [];
+    const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string }> = [];
     for (const g of gaps) {
       const sig = `${g.gap_subtype ?? ""}:${g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary}`.toLowerCase().replace(/\s+/g, " ");
       if (gapSignatures.has(sig)) continue;
@@ -61,6 +61,7 @@ export async function generateGapGoalCandidates(
           goalText: `run the pull_cutover activity for vessel ${vessel} to converge it to the latest origin/dev`,
           shapes: [],
           source: "gap_generated",
+          gapId: g.id,
         });
         if (out.length >= 5) break;
         continue;
@@ -78,6 +79,7 @@ export async function generateGapGoalCandidates(
         goalText: `Close substrate gap ${g.id}: ${firstSentence}`,
         shapes: ["canonicalized_gap_identity"],
         source: "gap_generated",
+        gapId: g.id,
       });
       if (out.length >= 5) break;
     }
