@@ -4094,13 +4094,18 @@ async function poolLoop(): Promise<void> {
                   lastDispatchAt = Date.now();
                 }
               }
-              if (cheap) { promptSelectionPass(); }
-              console.log(
-                `[pool/shape] completed ${shapePick.template_id} ` +
-                `outcome=${result.success ? "success" : "no_op"} ` +
-                `executionId=${result.execution_id ?? "?"}` +
-                (cheap ? ` (cheap-tick shortcut applied, next in ~5s)` : ""),
-              );
+              if (result.success) {
+                if (cheap) { promptSelectionPass(); }
+                console.log(
+                  `[pool/shape] completed ${shapePick.template_id} ` +
+                  `outcome=${result.success ? "success" : "no_op"} ` +
+                  `executionId=${result.execution_id ?? "?"}` +
+                  (cheap ? ` (cheap-tick shortcut applied, next in ~5s)` : ""),
+                );
+              } else {
+                inFlight.delete(reserveId);
+                console.warn(`[pool/shape] dispatch failed anchor_not_found: template=${shapePick.template_id}`);
+              }
             }
           } catch (err) {
             inFlight.delete(reserveId);
