@@ -4104,7 +4104,7 @@ async function poolLoop(): Promise<void> {
                 );
               } else {
                 inFlight.delete(reserveId);
-                console.warn(`[pool/shape] dispatch failed anchor_not_found: template=${shapePick.template_id}`);
+                console.warn(`[pool/shape] dispatch failed anchor_not_found: template=${shapePick.template_id} anchor=${result.execution_id ?? "?"}`);
               }
             }
           } catch (err) {
