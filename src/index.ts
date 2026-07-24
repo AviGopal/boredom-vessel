@@ -4088,8 +4088,11 @@ async function poolLoop(): Promise<void> {
               const costTokens = expectedCostTokens(shapePick.template_id);
               const cheap = (durationMs < 5000) && ((costTokens ?? 0) === 0);
               // cheap-tick shortcut: reset dispatch timer so the pool refills quickly
-              if (cheap && !shapePick.template_id.startsWith("gap-goal:")) {
+              if (cheap) {
                 lastDispatchAt = Math.min(lastDispatchAt, Date.now() - MIN_DISPATCH_INTERVAL_MS + 5000);
+                if (shapePick.template_id.startsWith("gap-goal:")) {
+                  lastDispatchAt = Date.now();
+                }
               }
               if (cheap) { promptSelectionPass(); }
               console.log(
