@@ -3423,7 +3423,7 @@ async function fetchTemplateRequiredUnboundVariables(templateId: string): Promis
     const vars = body.variables;
     if (!Array.isArray(vars)) return null;
     const unbound = vars
-      .filter((v) => v.required === true && v.default === undefined && v.default === null ? false : v.required === true && !("default" in v))
+      .filter((v) => v.required === true && !("default" in v))
       .map((v) => v.name);
     return unbound;
   } catch {
