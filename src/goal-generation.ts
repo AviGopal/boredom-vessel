@@ -78,6 +78,14 @@ export async function generateGapGoalCandidates(
   out.push({
     templateId: `gap-goal:${g.id}`,
     goalText: `Address gap failure lessons update ${g.id}: ${firstSentence}`,
+    shapes: ["canonicalized_gap_identity", "per_gap_failure_lessons"],
+    source: "gap_generated",
+    gapId: g.id,
+    classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
+  });
+  out.push({
+    templateId: `gap-goal:${g.id}`,
+    goalText: `Address gap failure lessons update ${g.id}: ${firstSentence}`,
     shapes: ["canonicalized_gap_identity"],
     source: "gap_generated",
     gapId: g.id,
