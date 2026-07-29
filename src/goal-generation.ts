@@ -74,7 +74,18 @@ export async function generateGapGoalCandidates(
       if (seen.has(g.id)) continue;
       seen.add(g.id);
       const firstSentence = g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary;
-      if (g.gap_subtype === "per_gap_failure_lessons_updated") continue;
+      if (g.gap_subtype === "per_gap_failure_lessons_updated") {
+  out.push({
+    templateId: `gap-goal:${g.id}`,
+    goalText: `Address gap failure lessons update ${g.id}: ${firstSentence}`,
+    shapes: ["canonicalized_gap_identity"],
+    source: "gap_generated",
+    gapId: g.id,
+    classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
+  });
+  if (out.length >= 5) break;
+  continue;
+}
       out.push({
         templateId: `gap-goal:${g.id}`,
         goalText: `Close substrate gap ${g.id}: ${firstSentence}`,
