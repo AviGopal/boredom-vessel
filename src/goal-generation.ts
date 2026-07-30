@@ -148,7 +148,13 @@ export async function generateGapGoalCandidates(
           const m = /reach-gate hollow class (deterministic_[a-z0-9_]+)/.exec(String(c.content ?? "")) ?? /lesson:\s*(deterministic_[a-z0-9_]+)/.exec(String(c.summary ?? ""));
           if (m && m[1]) classCounts.set(m[1], (classCounts.get(m[1]) ?? 0) + 1);
         }
-        const top = [...classCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+        // The recipe (parse+command+oracle for a goal class) applies to WRONG-VALUE classes —
+        // where a deterministic answer was computed but incorrect — not to pipeline/meta failures
+        // (staged_not_landed, error_envelope, no_output, edit_intent_no_edit) which have no
+        // goal-operand parse to fix. Filter to the applicable subset so recipe goals don't churn
+        // the drafter on classes it cannot address by adding an oracle.
+        const RECIPE_APPLICABLE = /(mismatch|wrong|unmeasurable|derived|count|registry|compute|placeholder)/;
+        const top = [...classCounts.entries()].filter(([c]) => RECIPE_APPLICABLE.test(c)).sort((a, b) => b[1] - a[1]).slice(0, 3);
         for (const [cls] of top) {
           const templateId = `gap-goal:recipe:${cls}`;
           const goalText = `In repos/goal-host-vessel/src/index.ts, add or refine a deterministic parse+command+oracle for the "${cls}" goal-failure class following the reach_by_construction_recipe: parse the goal operands once into a shared function, emit a deterministic shell command that produces the answer, and add a matching independent oracle that recomputes from the authoritative source and verifies the produced value. The change must typecheck.`;
