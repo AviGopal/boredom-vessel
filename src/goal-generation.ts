@@ -76,6 +76,14 @@ export async function generateGapGoalCandidates(
       }
       if (g.gap_subtype === "gap_backlog_unhealthy") continue;
       if (g.id.startsWith("auto_draft_decision")) continue;
+      // ACTIONABILITY GUARD (2026-07-30): a confabulated capability gap — "the goal-walk needs a
+      // producer for shape <X>" where <X> is a walk-internal shape, not a real vessel — has NO
+      // editable target. Routing it as a generic "Close substrate gap" edit makes the drafter
+      // localize to a non-existent repos/<X> path (observed: 110 mis_localized_path + 37
+      // out_of_mount_target dominated by vesselCapability/goal-walk/substrate). Skip minting these
+      // here; a real producer needs the localizer-clamp author-new-resolver path (targets a real
+      // vessel), not the boredom edit path — filed as a gap. Do not burn compose cycles mis-localizing.
+      if (g.category === "missing_capability" && /needs a producer for shape/i.test(g.summary)) continue;
       if (Array.from(activeGoals).some((goal) => goal.startsWith(`Close substrate gap ${g.id}`))) continue;
       if (!/capability|repair/i.test(g.summary)) continue;
       if (seen.has(g.id)) continue;
