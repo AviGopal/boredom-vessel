@@ -123,39 +123,47 @@ export async function generateGapGoalCandidates(
       });
       if (out.length >= 5) break;
     }
-    // ── LESSON-CLASS CANDIDATES (observation → goal): the system mints goals from its
-    // own recurring failure classes. Read the compose-lessons observation store (each
-    // line: {at, class, reason, vessels}), count classes over the recent window, and mint
-    // ONE candidate per top class. The goal text invokes the reach_by_construction_recipe
-    // concept (concept-db compose_lesson) so the drafter recalls the recipe at prompt-build.
-    // Dedup by templateId (one open candidate per class); selection/β-grading is inherited
-    // from the pool's existing per-templateId scoring — no new scheduler (law 5).
+    // ── RECIPE CANDIDATES (observation → actionable goal): mint goals from the system's own
+    // DETERMINISTIC reach-gate failure classes. Source = concept-db reach_gate_lesson concepts
+    // whose class is deterministic_* — each names a GOAL class whose deterministic parse+command+
+    // oracle produced a WRONG value (e.g. deterministic_wrong_registry_count, _wrong_derived_val,
+    // _file_count_mismatch). These are EXACTLY what the reach_by_construction_recipe fixes (unlike
+    // compose-failure classes like semantic_reject / mis_localized_path, which are DRAFTER quality
+    // and already surface as substrateGap rows on the gap-goal path above — minting recipe goals for
+    // THOSE dispatched hollow and β-poisoned the pool). The goal text names the goal-host file and an
+    // edit verb so it ROUTES to feature_compose edit-intent (an abstract "close the class" goal does
+    // not route and dispatches hollow). Fail-open: concept-db down or no deterministic classes ⇒ mint
+    // NOTHING (never fall back to the un-routable compose-lessons source).
     try {
-      const lessonsRaw = await Bun.file("/workspace/proposals/compose-lessons.jsonl").text();
-      const lines = lessonsRaw.trim().split("\n").slice(-200);
-      const classCounts = new Map<string, number>();
-      for (const line of lines) {
-        try {
-          const rec = JSON.parse(line) as { class?: string };
-          const cls = String(rec.class ?? "").trim();
-          if (cls) classCounts.set(cls, (classCounts.get(cls) ?? 0) + 1);
-        } catch { /* skip malformed line */ }
+      const CONCEPT_DB_ENDPOINT = process.env.CONCEPT_DB_ENDPOINT ?? "http://127.0.0.1:8260";
+      const cr = await fetch(`${CONCEPT_DB_ENDPOINT}/concepts/search?query=${encodeURIComponent("reach-gate hollow class")}&shape=reach_gate_lesson&limit=50`, {
+        method: "GET",
+        headers: { ...(apiKey ? { Authorization: `ApiKey ${apiKey}` } : {}) },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (cr.ok) {
+        const cj = (await cr.json()) as { concepts?: Array<{ content?: string; summary?: string }> };
+        const classCounts = new Map<string, number>();
+        for (const c of cj.concepts ?? []) {
+          const m = /reach-gate hollow class (deterministic_[a-z0-9_]+)/.exec(String(c.content ?? "")) ?? /lesson:\s*(deterministic_[a-z0-9_]+)/.exec(String(c.summary ?? ""));
+          if (m && m[1]) classCounts.set(m[1], (classCounts.get(m[1]) ?? 0) + 1);
+        }
+        const top = [...classCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+        for (const [cls] of top) {
+          const templateId = `gap-goal:recipe:${cls}`;
+          const goalText = `In repos/goal-host-vessel/src/index.ts, add or refine a deterministic parse+command+oracle for the "${cls}" goal-failure class following the reach_by_construction_recipe: parse the goal operands once into a shared function, emit a deterministic shell command that produces the answer, and add a matching independent oracle that recomputes from the authoritative source and verifies the produced value. The change must typecheck.`;
+          if (Array.from(activeGoals).some((goal) => goal.includes(`"${cls}" goal-failure class`))) continue;
+          out.push({
+            templateId,
+            goalText,
+            shapes: [],
+            source: "gap_generated",
+            gapId: `recipe:${cls}`,
+            classificationMetadata: { gap_subtype: "recipe_class", category: "systematic_failure" },
+          });
+        }
       }
-      const top = [...classCounts.entries()].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 3);
-      for (const [cls, n] of top) {
-        const templateId = `gap-goal:lesson:${cls}`;
-        const goalText = `Reproduce and close the recurring "${cls}" compose-failure class (${n} recent occurrences in compose-lessons). Apply the reach_by_construction_recipe: name the failing goal class by its operands, write one shared parse, emit a deterministic command plus a matching independent oracle from that parse, and verify by independent recompute.`;
-        if (Array.from(activeGoals).some((goal) => goal.startsWith(`Reproduce and close the recurring "${cls}"`))) continue;
-        out.push({
-          templateId,
-          goalText,
-          shapes: [],
-          source: "gap_generated",
-          gapId: `lesson:${cls}`,
-          classificationMetadata: { gap_subtype: "lesson_class", category: "systematic_failure" },
-        });
-      }
-    } catch { /* observation store unreadable — fail open, gap-goals unaffected */ }
+    } catch { /* concept-db unreachable — fail open, mint no recipe candidates */ }
     return out;
   } catch {
     return [];
