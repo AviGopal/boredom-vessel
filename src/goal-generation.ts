@@ -54,6 +54,13 @@ export async function generateGapGoalCandidates(
       if (g.id.startsWith("baseline-typecheck-broken-")) {
         if (seen.has(g.id)) continue;
         seen.add(g.id);
+        // Stale-premise guard: a baseline break is re-detected (detected_at refreshed) by
+        // every failing compose typecheck, so a baseline gap NOT re-detected for hours is
+        // presumed already repaired — minting pull_cutover for it produced an observed
+        // no-op echo (dozens of cheap-tick "successes" against a long-green baseline).
+        // A gap whose premise is a measurable condition must be re-checked before acting.
+        const detectedMs = g.detected_at ? Date.parse(g.detected_at) : 0;
+        if (!detectedMs || Date.now() - detectedMs > 6 * 60 * 60 * 1000) continue;
         const vm = g.summary.match(/baseline of (\S+) failing/);
         const vessel = (vm ? vm[1] : g.id.replace(/^baseline-typecheck-broken-/, "")).replace(/^repos\//, "");
         out.push({
@@ -116,6 +123,39 @@ export async function generateGapGoalCandidates(
       });
       if (out.length >= 5) break;
     }
+    // ── LESSON-CLASS CANDIDATES (observation → goal): the system mints goals from its
+    // own recurring failure classes. Read the compose-lessons observation store (each
+    // line: {at, class, reason, vessels}), count classes over the recent window, and mint
+    // ONE candidate per top class. The goal text invokes the reach_by_construction_recipe
+    // concept (concept-db compose_lesson) so the drafter recalls the recipe at prompt-build.
+    // Dedup by templateId (one open candidate per class); selection/β-grading is inherited
+    // from the pool's existing per-templateId scoring — no new scheduler (law 5).
+    try {
+      const lessonsRaw = await Bun.file("/workspace/proposals/compose-lessons.jsonl").text();
+      const lines = lessonsRaw.trim().split("\n").slice(-200);
+      const classCounts = new Map<string, number>();
+      for (const line of lines) {
+        try {
+          const rec = JSON.parse(line) as { class?: string };
+          const cls = String(rec.class ?? "").trim();
+          if (cls) classCounts.set(cls, (classCounts.get(cls) ?? 0) + 1);
+        } catch { /* skip malformed line */ }
+      }
+      const top = [...classCounts.entries()].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      for (const [cls, n] of top) {
+        const templateId = `gap-goal:lesson:${cls}`;
+        const goalText = `Reproduce and close the recurring "${cls}" compose-failure class (${n} recent occurrences in compose-lessons). Apply the reach_by_construction_recipe: name the failing goal class by its operands, write one shared parse, emit a deterministic command plus a matching independent oracle from that parse, and verify by independent recompute.`;
+        if (Array.from(activeGoals).some((goal) => goal.startsWith(`Reproduce and close the recurring "${cls}"`))) continue;
+        out.push({
+          templateId,
+          goalText,
+          shapes: [],
+          source: "gap_generated",
+          gapId: `lesson:${cls}`,
+          classificationMetadata: { gap_subtype: "lesson_class", category: "systematic_failure" },
+        });
+      }
+    } catch { /* observation store unreadable — fail open, gap-goals unaffected */ }
     return out;
   } catch {
     return [];
