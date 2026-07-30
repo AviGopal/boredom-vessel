@@ -3801,7 +3801,7 @@ async function resolveExecutionIdForDispatch(dispatchId: string): Promise<void> 
       const entry = inFlight.get(dispatchId);
       if (entry) {
         inFlight.delete(dispatchId);
-        recordOutcome(entry.goal_idx, body.status === "completed");
+        void reachAwareRecordOutcome(dispatchId, entry.goal_idx, body.status === "completed");
         console.log(
           `[pool] early-terminal: goal[${entry.goal_idx}] (${entry.template_id ?? "?"}) ` +
           `status=${body.status} (no executionId; not awaiting WS) in_flight=${inFlight.size}/${MAX_CONCURRENT}`,
