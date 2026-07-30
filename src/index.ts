@@ -2181,6 +2181,10 @@ const GAP_DRAIN_ID_MARKERS = [
   "operational-health",
   "pull_cutover",
   "pull-cutover",
+  // Lesson-class repair goals (observation→goal loop): minted from the system's own
+  // recurring failure classes — closing them IS drain work, and without this floor a
+  // shapeless lesson candidate loses the cold pool to the endless detect-* crowd.
+  "gap-goal:lesson:",
 ];
 
 function isGapDrainCandidate(templateId: string, tags: string[]): boolean {
