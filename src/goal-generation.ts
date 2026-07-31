@@ -123,20 +123,7 @@ export async function generateGapGoalCandidates(
       // out_of_mount_target dominated by vesselCapability/goal-walk/substrate). Skip minting these
       // here; a real producer needs the localizer-clamp author-new-resolver path (targets a real
       // vessel), not the boredom edit path — filed as a gap. Do not burn compose cycles mis-localizing.
-      if (g.category === "missing_capability" && /needs a producer for shape/i.test(g.summary)) {
-        const shapeMatch = g.summary.match(/needs a producer for shape\s+(\S+)/i);
-        const shapeName = shapeMatch ? shapeMatch[1] : "unknown_shape";
-        out.push({
-          templateId: `gap-goal:${g.id}`,
-          goalText: `Author a producer resolver for shape ${shapeName}`,
-          shapes: [shapeName],
-          source: "gap_generated",
-          gapId: g.id,
-          classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
-        });
-        if (out.length >= 5) break;
-        continue;
-      }
+      if (g.category === "missing_capability" && /needs a producer for shape/i.test(g.summary)) continue;
       if (Array.from(activeGoals).some((goal) => goal.startsWith(`Close substrate gap ${g.id}`))) continue;
       if (!/capability|repair/i.test(g.summary)) continue;
       if (seen.has(g.id)) continue;
