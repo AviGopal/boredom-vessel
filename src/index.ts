@@ -2773,10 +2773,22 @@ function persistMomentum(): void {
   const now = Date.now();
   if (now - lastMomentumWriteAt < 5000) return;
   lastMomentumWriteAt = now;
-  const snapshot = JSON.stringify({ totalPicks: totalPicksV24f, templates: Object.fromEntries([...momentumByTemplate.entries()].map(([k, v]) => [k, v.outcomes])), idle: Object.fromEntries(consecutiveIdleByTemplate) });
+  const snapshot = JSON.stringify({ totalPicks: totalPicksV24f, templates: Object.fromEntries([...momentumByTemplate.entries()].map(([k, v]) => [k, v.outcomes])), idle: Object.fromEntries(consecutiveIdleByTemplate), failures: Object.fromEntries(consecutiveFailureByTemplate) });
   Bun.write(MOMENTUM_STORE_PATH, snapshot).catch(() => {});
 }
 const consecutiveIdleByTemplate = new Map<string, number>();
+// FAILURE DEBIT (wire D, 2026-07-30): consecutive HARD failures (reward === 0 —
+// dispatch-infrastructure errors, anchor_not_found, non-OK HTTP, error-yield) per
+// template. Distinct from consecutiveIdle (which also counts clean-but-empty ticks
+// at IDLE_REWARD): a 100%-recent-failure record must be able to outvote ANY
+// priority floor, so ucbScoreImpl applies an exponential 0.5^min(cf,10) debit to
+// the FINAL score (after the priority multiplier) in BOTH the cold and sampled
+// branches — the cold branch matters because outcome-TTL pruning can zero `picks`
+// while the streak persists (observed: mean=0.00 template with 24+ consecutive
+// anchor_not_found failures kept winning behind a prio=3.00 gap-drain floor).
+// This is pool conditioning — data the selector reads — not a blocklist: one
+// success (or idle) resets the streak, and the debit decays nothing permanently.
+const consecutiveFailureByTemplate = new Map<string, number>();
 // Reward a clean-but-empty tick earns. Non-zero so health/observer detectors
 // stay periodically sampleable via the UCB explore bonus, but well below a
 // productive tick (1.0) so finding-producing detectors win more budget.
@@ -2834,6 +2846,13 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
     consecutiveIdleByTemplate.set(templateId, (consecutiveIdleByTemplate.get(templateId) ?? 0) + 1);
   } else {
     consecutiveIdleByTemplate.set(templateId, 0);
+  }
+  // Failure debit: only a reward of exactly 0 is a HARD failure; any yield
+  // (including an idle-but-clean tick at IDLE_REWARD) breaks the streak.
+  if (reward <= 0) {
+    consecutiveFailureByTemplate.set(templateId, (consecutiveFailureByTemplate.get(templateId) ?? 0) + 1);
+  } else {
+    consecutiveFailureByTemplate.set(templateId, 0);
   }
   let m: { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } | undefined = momentumByTemplate.get(templateId) as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } | undefined;
   if (!m || !Array.isArray((m as unknown as { outcomes?: unknown }).outcomes)) {
@@ -2902,6 +2921,7 @@ async function hydrateMomentum(): Promise<void> {
       totalPicks?: number;
       templates?: Record<string, { outcome: "success" | "failure"; at: number; reward: number }[]>;
       idle?: Record<string, number>;
+      failures?: Record<string, number>;
     };
     if (typeof saved.totalPicks === "number" && saved.totalPicks > totalPicksV24f)
       totalPicksV24f = saved.totalPicks;
@@ -2945,6 +2965,9 @@ async function hydrateMomentum(): Promise<void> {
     }
     for (const [tid, n] of Object.entries(saved.idle ?? {})) {
       if (typeof n === "number" && n > 0) consecutiveIdleByTemplate.set(tid, n);
+    }
+    for (const [tid, n] of Object.entries(saved.failures ?? {})) {
+      if (typeof n === "number" && n > 0) consecutiveFailureByTemplate.set(tid, n);
     }
     console.error(
       `[pool] momentum hydrated: ${momentumByTemplate.size} templates, totalPicks=${totalPicksV24f}`,
@@ -3312,7 +3335,12 @@ function ucbScoreImpl(
     const now = Date.now();
     const coldCrowd = coldPickTimestamps.filter((t) => now - t <= 60_000).length;
     const explorationBonus = (IDLE_REWARD + 1.4 * explorationBoost) * Math.max(shapeAvail, 1) * pw;
-    return { score: explorationBonus / (1 + coldCrowd), reason: `ucb=cold picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""} coldCrowd=${coldCrowd}` };
+    // Failure debit applies here too: outcome-TTL pruning can return a template to
+    // picks=0 while its consecutive-failure streak persists — without this the
+    // "cold" branch relaunders a 100%-failing template past the debit.
+    const cfCold = consecutiveFailureByTemplate.get(templateId) ?? 0;
+    const failDebitCold = cfCold >= 2 ? Math.pow(0.5, Math.min(cfCold, 10)) : 1;
+    return { score: (explorationBonus / (1 + coldCrowd)) * failDebitCold, reason: `ucb=cold picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""} coldCrowd=${coldCrowd}${cfCold >= 2 ? ` fail×${cfCold}` : ""}` };
   }
   // V28: mean = average information-yield reward (not success fraction), so UCB
   // exploits detectors that actually produce findings.
@@ -3358,6 +3386,16 @@ function ucbScoreImpl(
   if (ci >= 2) {
     finalScore *= Math.pow(0.5, Math.min(ci, 4));
     reason += ` idle×${ci}`;
+  }
+  // Failure debit — exponential in consecutive HARD failures, applied AFTER the
+  // priority multiplier so no floor (prio=3.00 gap-drain, mode boosts, …) can
+  // outvote a 100%-recent-failure record: 0.5^min(cf,10) reaches ~0.001 by cf=10.
+  // Deliberately deeper than the idle debit's 0.5^4 cap (a failing dispatch burns
+  // infrastructure; an idle tick is merely uninformative). One success resets it.
+  const cf = consecutiveFailureByTemplate.get(templateId) ?? 0;
+  if (cf >= 2) {
+    finalScore *= Math.pow(0.5, Math.min(cf, 10));
+    reason += ` fail×${cf}`;
   }
   return { score: finalScore, reason };
 }

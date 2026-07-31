@@ -1,3 +1,37 @@
+// ── ADMISSION MIRROR — one admission policy (wire D, 2026-07-30) ──────────────────────
+// development-vessel's admitActionableGaps (repos/development-vessel/src/resolvers/
+// gap-to-feature.ts, commit 76f44ca) is the AUTHORITATIVE admission gate for auto-selected
+// gaps, but it is not resolvable through the shape plane: the substrateGap read resolver
+// exposes only id/category/source/status/exclude_categories pointer filters — no admitted
+// set. Boredom minting gap-goals from the RAW substrateGap window therefore ran a second,
+// divergent admission policy.
+// TODO-gap (missing resolvable shape): dev-vessel should serve the admitted set through the
+// shape plane — either a substrateGap pointer flag (e.g. `admitted_only: true`) or a
+// dedicated `actionableGaps` shape that runs admitActionableGaps server-side. When that
+// exists, boredom must resolve THROUGH it and this mirror (plus the inline confab-producer
+// guard below) must be DELETED.
+// Until then this is a clearly-marked MIRROR of the gate's data-only predicate: the
+// orphan/unreachable hard-exclusions, computable from gap data alone. The gate's other two
+// arms — typecheck-phantom retire and proposal/cited-file admits — need dev-vessel-local
+// state (tsc runs, proposal reports, repos dirs) and CANNOT be mirrored here; those gaps
+// fall through ADMITTED, matching the gate's conservative default (unknown => admit).
+const MIRROR_EXCLUDE_ORPHAN_AFTER_FAILS = 1; // mirrors EXCLUDE_ORPHAN_AFTER_FAILS
+export function admitActionableGapsMirror<T extends { id: string; category?: string; classification_metadata?: Record<string, unknown> }>(gaps: T[]): T[] {
+  return gaps.filter((g) => {
+    const id = String(g.id ?? "");
+    const cat = String(g.category ?? "");
+    const meta = (g.classification_metadata ?? (g as Record<string, unknown>).metadata ?? {}) as Record<string, unknown>;
+    const failedAttempts = Number(meta.failed_attempts ?? 0);
+    const isOrphanClass = cat === "orphaned_capability" || cat === "unreachable_producer" || /orphaned[_-]capability/i.test(id);
+    if (!isOrphanClass) return true;
+    // mirror: orphan_no_producer — one auto-shot only; a failed mint = structurally un-provisionable
+    if (failedAttempts >= MIRROR_EXCLUDE_ORPHAN_AFTER_FAILS) return false;
+    // mirror: orphan_missing_shape — its route needs meta.shape
+    if (cat === "orphaned_capability" && !String(meta.shape ?? "").trim()) return false;
+    return true;
+  });
+}
+
 export async function generateGapGoalCandidates(
   activityApiEndpoint: string,
   apiKey: string,
@@ -15,7 +49,10 @@ export async function generateGapGoalCandidates(
       body?: { gaps?: Array<{ id: string; summary: string; gap_subtype?: string }> };
       gaps?: Array<{ id: string; summary: string; gap_subtype?: string }>;
     };
-    const gaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; gap_subtype?: string; category?: string; detected_at?: string; classification_metadata?: { gap_subtype?: string; category?: string; detected_at?: string } }>;
+    const rawGaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; gap_subtype?: string; category?: string; detected_at?: string; classification_metadata?: Record<string, unknown> }>;
+    // ONE ADMISSION POLICY: pass the raw window through the mirrored dev-vessel admission
+    // gate BEFORE any scoring/minting (see admitActionableGapsMirror above).
+    const gaps = admitActionableGapsMirror(rawGaps);
     const CATEGORY_WEIGHT: Record<string, number> = { missing_capability: 3, unreachable_producer: 2.5, operational_health: 2.5, detector_coverage_gap: 2, decision_without_action: 2, posterior_consistency_drift: 1.5, architectural_pattern: 1.5, residual_shape_proposal: 1, orphaned_capability: 0.5 };
     gaps.sort((a, b) => { const wa = CATEGORY_WEIGHT[a.category ?? ""] ?? 1; const wb = CATEGORY_WEIGHT[b.category ?? ""] ?? 1; if (wb !== wa) return wb - wa; const da = Number(a.detected_at ? Date.parse(a.detected_at) : 0); const db = Number(b.detected_at ? Date.parse(b.detected_at) : 0); if (db !== da) return db - da; return String(b.detected_at ?? "").localeCompare(String(a.detected_at ?? "")); });
     // Baseline doom-signals (a broken package baseline blocks ALL self-authoring
@@ -76,7 +113,10 @@ export async function generateGapGoalCandidates(
       }
       if (g.gap_subtype === "gap_backlog_unhealthy") continue;
       if (g.id.startsWith("auto_draft_decision")) continue;
-      // ACTIONABILITY GUARD (2026-07-30): a confabulated capability gap — "the goal-walk needs a
+      // ACTIONABILITY GUARD (2026-07-30) — boredom-MINT-PATH-specific, NOT part of the
+      // dev-vessel admission gate (which would admit these as unknown-actionability); collapses
+      // into the resolve-through gate once dev-vessel serves an admitted-gaps shape (see the
+      // ADMISSION MIRROR TODO-gap above): a confabulated capability gap — "the goal-walk needs a
       // producer for shape <X>" where <X> is a walk-internal shape, not a real vessel — has NO
       // editable target. Routing it as a generic "Close substrate gap" edit makes the drafter
       // localize to a non-existent repos/<X> path (observed: 110 mis_localized_path + 37
