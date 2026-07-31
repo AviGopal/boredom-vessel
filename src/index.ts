@@ -3745,21 +3745,7 @@ function reapStaleInFlight(): void {
  * a new execution_id so we don't lose completions to the race.
  */
 const recentWsCompletions = new Map<string, { success: boolean; received_at: number }>();
-
-// gap momentum-reads-dispatch-status-not-reach: a completed-but-not-reached dispatch must grade as failure.
-async function reachAwareRecordOutcome(dispatchId: string, goalIdx: number, rawSuccess: boolean): Promise<void> {
-  let success = rawSuccess;
-  if (rawSuccess) {
-    try {
-      const r = await fetch(`${GOAL_HOST_ENDPOINT}/executions/${dispatchId}/reach`, { headers: authHeaders(), signal: AbortSignal.timeout(10_000) });
-      if (r.ok) {
-        const d = await r.json().catch(() => ({})) as { reached?: string };
-        if (d.reached === "no") success = false;
-      }
-    } catch { /* verdict unavailable - keep raw outcome */ }
-  }
-  recordOutcome(goalIdx, success);
-}
+async function reachAwareRecordOutcome(dispatchId: string, goalIdx: number, rawSuccess: boolean): Promise<void> { let success = rawSuccess; if (rawSuccess) { try { const r = await fetch(`${GOAL_HOST_ENDPOINT}/executions/${dispatchId}/reach`, { headers: authHeaders(), signal: AbortSignal.timeout(10_000) }); if (r.ok) { const d = await r.json().catch(() => ({})) as { reached?: string }; if (d.reached === "no") success = false; } } catch { /* verdict unavailable - keep raw outcome */ } } recordOutcome(goalIdx, success); } // gap momentum-reads-dispatch-status-not-reach
 
 async function resolveExecutionIdForDispatch(dispatchId: string): Promise<void> {
   const deadline = Date.now() + 15_000;
