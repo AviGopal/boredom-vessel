@@ -279,6 +279,13 @@ export async function generateGapGoalCandidates(
         }
       }
     } catch { /* concept-db unreachable — fail open, mint no recipe candidates */ }
+    // SUPPLY SHAPE MUST BE AUDIBLE ON THE SUCCESS PATH TOO. The two warnings above
+    // only fire when the resolve ERRORS. A successful resolve that yields nothing
+    // is still silent, so "the gap window was empty", "admission rejected every
+    // gap" and "candidates existed but scored below the tick arms" remain
+    // indistinguishable — and they need different fixes. These counts separate
+    // them in one line, at no cost.
+    console.warn(`[gap-goal-supply] candidates=${out.length} raw_gaps=${rawGaps.length} admitted=${gaps.length}`);
     return out;
   } catch (e) {
     // Same reasoning as the !res.ok branch above: a silent [] here is
