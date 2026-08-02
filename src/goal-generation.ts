@@ -1,3 +1,57 @@
+/**
+ * sanitizeGoalText — strip recursive gap/decompose prefix nesting and cap length.
+ *
+ * Gap-closing goals accumulate unbounded chains of `Close substrate gap <id>:`
+ * prefixes as they are narrowed, decomposed, and re-dispatched. This makes goal
+ * text unintelligible to both the target-inference LLM and the template selector,
+ * explaining ~40% of reach failures. This function:
+ *   1. Strips recursive `Close substrate gap <id>:` nesting beyond depth 1
+ *   2. Strips recursive `investigate and decompose (gap|goal):` nesting
+ *   3. Normalizes `[narrowed from <id>]` to `[narrowed]`
+ *   4. Caps at 500 chars (keeping the tail = the meaningful portion)
+ */
+export function sanitizeGoalText(raw: string): string {
+  if (!raw || typeof raw !== "string") return raw ?? "";
+  let text = raw;
+
+  // Strip recursive "Close substrate gap <id>:" prefixes, keeping only the innermost
+  // Pattern: "Close substrate gap <id>: Close substrate gap <id>: ... <actual content>"
+  const CLOSE_GAP_RE = /^(?:Close substrate gap [\w:.!-]+:\s*)+/;
+  const closeMatch = text.match(CLOSE_GAP_RE);
+  if (closeMatch) {
+    // Find all individual gap references
+    const gapRefs = closeMatch[0].match(/Close substrate gap [\w:.!-]+:/g) ?? [];
+    if (gapRefs.length > 1) {
+      // Keep only the innermost (last) gap reference
+      const innermost = gapRefs[gapRefs.length - 1];
+      text = innermost + " " + text.slice(closeMatch[0].length).trimStart();
+    }
+  }
+
+  // Strip recursive "investigate and decompose gap/goal <id>:" prefixes
+  const DECOMPOSE_RE = /^(?:investigate and decompose (?:gap|goal)[:\s]+(?:[\w:.!-]+[:\s]+)?)+/i;
+  const decompMatch = text.match(DECOMPOSE_RE);
+  if (decompMatch && decompMatch[0].length > 60) {
+    // Strip all but keep the remaining content
+    text = text.slice(decompMatch[0].length).trimStart();
+    // If the remaining starts with a gap close or meaningful content, prepend
+    // a single "investigate and decompose: " marker
+    if (text.length > 0 && !/^investigate/i.test(text)) {
+      text = "investigate and decompose: " + text;
+    }
+  }
+
+  // Normalize [narrowed from <id>] annotations to [narrowed]
+  text = text.replace(/\[narrowed from [\w:.!-]+\]/g, "[narrowed]");
+
+  // Cap at 500 chars, keeping the tail (meaningful portion)
+  if (text.length > 500) {
+    text = "…" + text.slice(text.length - 499);
+  }
+
+  return text.trim();
+}
+
 // ── ADMISSION MIRROR — one admission policy (wire D, 2026-07-30) ──────────────────────
 // development-vessel's admitActionableGaps (repos/development-vessel/src/resolvers/
 // gap-to-feature.ts, commit 76f44ca) is the AUTHORITATIVE admission gate for auto-selected
@@ -139,7 +193,7 @@ export async function generateGapGoalCandidates(
       if (g.gap_subtype === "semantic_reject") {
         out.push({
           templateId: `gap-goal:${g.id}`,
-          goalText: `Address semantic rejection gap ${g.id}: ${firstSentence}`,
+          goalText: sanitizeGoalText(`Address semantic rejection gap ${g.id}: ${firstSentence}`),
           shapes: ["canonical_gap_signature"],
           source: "gap_generated",
           gapId: g.id,
@@ -151,7 +205,7 @@ export async function generateGapGoalCandidates(
       if (g.gap_subtype === "per_gap_failure_lessons_updated") {
   out.push({
     templateId: `gap-goal:${g.id}`,
-    goalText: `Address gap failure lessons update ${g.id}: ${firstSentence}`,
+    goalText: sanitizeGoalText(`Address gap failure lessons update ${g.id}: ${firstSentence}`),
     shapes: ["canonicalized_gap_identity", "per_gap_failure_lessons"],
     source: "gap_generated",
     gapId: g.id,
@@ -159,7 +213,7 @@ export async function generateGapGoalCandidates(
   });
   out.push({
     templateId: `gap-goal:${g.id}`,
-    goalText: `Address gap failure lessons update ${g.id}: ${firstSentence}`,
+    goalText: sanitizeGoalText(`Address gap failure lessons update ${g.id}: ${firstSentence}`),
     shapes: ["canonicalized_gap_identity"],
     source: "gap_generated",
     gapId: g.id,
@@ -170,7 +224,7 @@ export async function generateGapGoalCandidates(
 }
       out.push({
         templateId: `gap-goal:${g.id}`,
-        goalText: `Close substrate gap ${g.id}: ${firstSentence}`,
+        goalText: sanitizeGoalText(`Close substrate gap ${g.id}: ${firstSentence}`),
         shapes: ["canonicalized_gap_identity"],
         source: "gap_generated",
         gapId: g.id,
