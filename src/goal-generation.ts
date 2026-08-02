@@ -44,7 +44,14 @@ export async function generateGapGoalCandidates(
       body: JSON.stringify({ impulse: { type: "substrateGap", status: "open", limit: 100, sort: "disposition_scored" } }),
       signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      // SUPPLY FAILURE MUST BE AUDIBLE. Returning [] silently is indistinguishable
+      // in the journal from "candidates existed but scored low" — and those need
+      // opposite fixes. Observed: an hour with 165 boredom reservations and ZERO
+      // `reserving gap-goal:`, with nothing in any log to say which case it was.
+      console.warn(`[gap-goal-supply] dev-vessel substrateGap resolve returned ${res.status} — 0 gap-goal candidates this pass`);
+      return [];
+    }
     const json = (await res.json()) as {
       body?: { gaps?: Array<{ id: string; summary: string; gap_subtype?: string }> };
       gaps?: Array<{ id: string; summary: string; gap_subtype?: string }>;
@@ -219,7 +226,11 @@ export async function generateGapGoalCandidates(
       }
     } catch { /* concept-db unreachable — fail open, mint no recipe candidates */ }
     return out;
-  } catch {
+  } catch (e) {
+    // Same reasoning as the !res.ok branch above: a silent [] here is
+    // indistinguishable from "candidates scored low", and the two need opposite
+    // fixes. Fail-open behaviour is unchanged — this only makes it audible.
+    console.warn(`[gap-goal-supply] gap-goal candidate generation threw — 0 candidates this pass: ${(e as Error)?.message ?? e}`);
     return [];
   }
 }
