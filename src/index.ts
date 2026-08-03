@@ -2686,7 +2686,7 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
       pages.push(...page);
       if (page.length < 100) break;
     }
-    if (pages.length === 0) return candidateCache?.entries ?? [];
+    const templatesUnavailable = pages.length === 0;
     const body = { templates: pages } as { templates?: Array<Record<string, unknown>> };
     const entries: ShapeDrivenCandidate[] = [];
     for (const t of body.templates ?? []) {
@@ -2715,7 +2715,7 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
     /* fail open */
   }
   candidateCache = { fetchedAt: Date.now(), entries };
-    return entries;
+    return templatesUnavailable && entries.length === 0 ? candidateCache?.entries ?? [] : entries;
   } catch {
     return candidateCache?.entries ?? [];
   }
