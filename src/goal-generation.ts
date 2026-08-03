@@ -186,7 +186,8 @@ export async function generateGapGoalCandidates(
       // vessel), not the boredom edit path — filed as a gap. Do not burn compose cycles mis-localizing.
       if (g.category === "missing_capability" && /needs a producer for shape/i.test(g.summary)) continue;
       if (Array.from(activeGoals).some((goal) => goal.startsWith(`Close substrate gap ${g.id}`))) continue;
-      if (!/capability|repair/i.test(g.summary)) continue;
+      if (/^\s*Close substrate gap [-\w:.!]+:?\s*$/.test(g.summary)) continue;
+if (!/capability|repair/i.test(g.summary)) continue;
       if (seen.has(g.id)) continue;
       seen.add(g.id);
       const firstSentence = g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary;
