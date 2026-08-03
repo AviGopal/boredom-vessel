@@ -2715,7 +2715,7 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
     /* fail open */
   }
   if (templatesUnavailable && entries.length === 0) return candidateCache?.entries ?? [];
-    if (templatesUnavailable && entries.length === 0) return candidateCache?.entries ?? []; candidateCache = { fetchedAt: Date.now(), entries }; return entries;
+    candidateCache = { fetchedAt: Date.now(), entries }; return entries;
   } catch {
     return candidateCache?.entries ?? [];
   }
