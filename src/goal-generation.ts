@@ -44,8 +44,17 @@ export function sanitizeGoalText(raw: string): string {
   // Normalize [narrowed from <id>] annotations to [narrowed]
   text = text.replace(/\[narrowed from [\w:.!-]+\]/g, "[narrowed]");
 
-  // Cap at 500 chars, keeping the tail (meaningful portion)
-  if (text.length > 500) {
+  // Cap at 500 chars, keeping the tail (meaningful portion).
+  // EXEMPT A WELL-FORMED EDIT GOAL. The cap exists to stop prefix-accreted prose from
+  // growing without bound, and keeping the tail is the right choice for that. But a
+  // goal carrying an anchor fence and a replacement fence is structured, not verbose:
+  // cutting it anywhere breaks the two-fence pair synthesizeVerbatimEditOps requires,
+  // and keeping the TAIL specifically discards the anchor while retaining the
+  // replacement — leaving an edit with nothing to match against. The prefix strippers
+  // above already remove the unbounded-growth term for this class, so exempting it
+  // does not reopen the accretion this cap was added to bound.
+  const hasAnchorAndReplacement = (text.match(/```/g) ?? []).length >= 2;
+  if (text.length > 500 && !hasAnchorAndReplacement) {
     text = "…" + text.slice(text.length - 499);
   }
 
@@ -210,7 +219,19 @@ export async function generateGapGoalCandidates(
       if (!/capability|repair/i.test(g.summary)) continue;
       if (seen.has(g.id)) continue;
       seen.add(g.id);
-      const firstSentence = g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary;
+      // FIRST-SENTENCE IS A SUMMARISER, NOT A TRUNCATOR. Taking sentence one is right
+      // for a prose gap summary, but a re-minted gap's summary IS a previously
+      // well-formed edit goal — one file, a verbatim anchor fence and a replacement
+      // fence. Sentence one of that is the instruction line, and the anchor and
+      // replacement are discarded, so the re-mint can never satisfy
+      // synthesizeVerbatimEditOps (which requires exactly two fences) and is
+      // guaranteed to fail, escalate, and be re-minted again.
+      // Detect the well-formed shape and pass it through whole. Median well-formed
+      // goal is 1610 chars, p90 3588 — far past any single sentence.
+      const summaryIsWellFormedGoal = (g.summary.match(/```/g) ?? []).length >= 2;
+      const firstSentence = summaryIsWellFormedGoal
+        ? g.summary
+        : (g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary);
       if (g.gap_subtype === "semantic_reject") {
         out.push({
           templateId: `gap-goal:${g.id}`,
