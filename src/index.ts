@@ -972,6 +972,43 @@ const EXECUTABLE_RESOLVERS = new Set([
   // deterministic dev-vessel resolvers emitted by newer gap-closing drafts:
   "fs_grep", "intervention_evaluate",
 ]);
+
+// Union in whatever discovery currently advertises. UNION, never replace: a registry blip must
+// be able to ADD capability and never silently remove it, which would re-freeze the backlog and
+// look identical to the bug this repairs. The seed above stays as the floor.
+//
+// This refresh is CACHE MAINTENANCE, not a behavioural rhythm — it steers no selection and
+// belongs in no rhythm-shape pool; it only keeps a lookup from going stale. It is self-arming
+// deliberately: an earlier draft declared a refresher with no caller, which would have landed
+// inert and left the backlog frozen while the diff looked correct.
+const BOREDOM_DISCOVERY_ENDPOINT = process.env["DISCOVERY_VESSEL_ENDPOINT"] ?? process.env["DISCOVERY_ENDPOINT"] ?? "http://127.0.0.1:8100";
+const EXECUTABLE_REFRESH_MS = 60_000;
+async function refreshExecutableResolvers(): Promise<void> {
+  try {
+    const r = await fetch(`${BOREDOM_DISCOVERY_ENDPOINT.replace(/\/$/, "")}/registry/shapes`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!r.ok) return;
+    const j = (await r.json()) as { shapes?: unknown };
+    const shapes = Array.isArray(j.shapes) ? j.shapes : [];
+    let added = 0;
+    for (const s of shapes) {
+      if (typeof s === "string" && s.length > 0 && !EXECUTABLE_RESOLVERS.has(s)) {
+        EXECUTABLE_RESOLVERS.add(s);
+        added += 1;
+      }
+    }
+    if (added > 0) {
+      console.log(`[exercise] executable-resolver set refreshed from discovery: +${added} (now ${EXECUTABLE_RESOLVERS.size})`);
+    }
+  } catch {
+    // Unreachable discovery leaves the seed floor in place — degrade, never widen blindly.
+  }
+}
+void refreshExecutableResolvers();
+const executableRefreshTimer = setInterval(() => { void refreshExecutableResolvers(); }, EXECUTABLE_REFRESH_MS);
+(executableRefreshTimer as { unref?: () => void }).unref?.();
 // Authored-activity id prefixes the picker exercises. `gap-closing:` is the
 // historical set; `proposed_pattern_authored_` is what draft-activity-from-pattern
 // emits (e.g. the concept prime-context activity).
