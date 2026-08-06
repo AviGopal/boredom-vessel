@@ -948,9 +948,25 @@ function extraVariablesForGoal(goalIdx: number): Record<string, unknown> {
 // point is to skip activities whose tasks reference resolvers the exercise path
 // cannot route — not to whitelist a paradigm.
 const EXECUTABLE_RESOLVERS = new Set([
+// SEED, not the whole allowlist — the live set is unioned from discovery below. These names stay
+// as a floor so the exerciser still works if discovery is unreachable.
+// 
+// WHY. This set WAS the entire allowlist, and a proposal is executable only if EVERY resolver in
+// its chain is a member, so one unlisted name disqualifies the whole chain. Measured 2026-08-06:
+// backlog of 214 proposals across 33 classes, "no executable proposals" on every tick, the vessel
+// spinning a 5-second cheap tick 94 idle cycles deep — while discovery advertised 332 shapes.
+// 45 DISTINCT resolvers were blocking, none of them broken: http_retry, obsidian:search,
+// obsidian:write_note and concept-relevance-backfill-v2 all resolve today, and
+// obsidian:write_note was observed traversing libp2p federation the same day.
+// 
+// So the system generated its own work and then refused to execute any of it, because a constant
+// here had not kept up with the vocabulary. That is law 1 — behaviour gated behind an in-process
+// constant is invisible to traces and to the walk, so the loop it constrains can never correct
+// it. Worse for this system specifically: a resolver's utility is meant to be discovered by
+// ATTEMPTING it and seeing whether the goal reaches. A resolver that is never attempted can never
+// be found wanting, so the gate looks permanently justified because nothing ever contradicts it.
   "fs_read", "fs_write", "llm_completion_dispatch",
-  "json_path_extract", "http_fetch", "noop",
-  // deterministic vessel resolvers (discovery-routed) commonly emitted by the
+  "json_path_extract", "http_fetch", "noop",  // deterministic vessel resolvers (discovery-routed) commonly emitted by the
   // real-chain author for non-gap-closing capability:
   "concept_select_for_prompt", "concept_create_write", "concept_usage_record",
   // deterministic dev-vessel resolvers emitted by newer gap-closing drafts:
