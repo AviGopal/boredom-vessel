@@ -3544,7 +3544,9 @@ async function fetchTemplateRequiredUnboundVariablesActivity(templateId: string)
 }
 
 const GAP_GOAL_COOLDOWN_MS = parseInt(process.env.GAP_GOAL_COOLDOWN_MS ?? "600000", 10);
-const GAP_GOAL_GRADE_DELAY_MS = parseInt(process.env.GAP_GOAL_GRADE_DELAY_MS ?? "180000", 10);
+// GAP_GOAL_GRADE_DELAY_MS is deliberately gone: grading now waits for a terminal
+// dispatch status rather than a wall-clock deadline (see the grader below). Leaving
+// the env var readable would invite re-introducing a deadline as a verdict.
 const gapGoalLastDispatchAt = new Map<string, number>();
 
 async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: string; execution_id?: string; success: boolean } | null> {
@@ -3581,21 +3583,68 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
         const body = await res.json() as { dispatchId?: string };
         const dispatchId = body.dispatchId ?? "";
         if (dispatchId) {
-          setTimeout(async () => {
-            try {
-              const st = await fetch(`${GOAL_HOST_ENDPOINT}/resolve`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
-                body: JSON.stringify({ impulse: { pointer: { type: "activeDispatches" } } }),
-                signal: AbortSignal.timeout(10_000),
-              });
-              const sj = await st.json() as { body?: { dispatches?: Array<{ dispatchId?: string; reached?: boolean | null }> } };
-              const rec = (sj.body?.dispatches ?? []).find((d) => d.dispatchId === dispatchId);
-              recordOutcomeByTemplate(templateId, rec?.reached === true);
-            } catch {
-              recordOutcomeByTemplate(templateId, false);
+          // GRADE ON TERMINAL STATE, NEVER ON A DEADLINE.
+          //
+          // This was a single setTimeout at GAP_GOAL_GRADE_DELAY_MS (180s) that
+          // recorded `rec?.reached === true` — so a dispatch that was still WORKING at
+          // 3 minutes was recorded as a hard failure, and so was a transport error
+          // reading its status. Measured against the work being graded: an edit-intent
+          // compose runs median 77s / p75 188s / p90 240s, and 63 of 279 routings ran
+          // to the caller's 540s ceiling. 26.3% of outcomes were therefore graded
+          // before they existed.
+          //
+          // That is not a cosmetic mis-grade. reward<=0 is a HARD failure, which
+          // increments consecutiveFailureByTemplate and multiplies the arm's score by
+          // 0.5^min(cf,10) — applied AFTER the priority multiplier, specifically so no
+          // gap-drain floor can rescue it. An idle detector tick meanwhile earns
+          // IDLE_REWARD (>0), which RESETS its streak. So the selector was being taught,
+          // correctly given its inputs, that idling pays and drafting does not: 90 of
+          // 203 gap-goal reservations sat at mean=0.00 with 98 already carrying a fail
+          // debit, while 8,221 tick reservations sat at a stable mean=0.20. gap-goal is
+          // the ONLY arm class that carries goal text and can reach the drafter.
+          //
+          // Poll to a terminal status instead. `status` leaves "running" exactly once,
+          // and `reached` is the verdict; absence means the record has not appeared yet
+          // (or has aged out of the 50-entry activeDispatches window), which is NOT a
+          // verdict. On anything other than a terminal read we record NOTHING — an
+          // ungraded arm keeps its prior, which is honest; a falsely-failed arm is
+          // trained away from the only productive channel it has.
+          //
+          // NOT a timer in the law-5 sense: nothing here paces work. This is a transport
+          // deadline on a status read, and the loop exits on the observed state, not on
+          // the clock. The clock only bounds how long we are willing to wait before
+          // admitting we never saw an answer — and that admission is logged, not graded.
+          void (async () => {
+            const POLL_BACKOFF_MS = [15_000, 30_000, 60_000, 90_000, 120_000, 150_000, 180_000];
+            let sawRunning = false;
+            for (let i = 0; i < POLL_BACKOFF_MS.length; i++) {
+              await new Promise((r) => setTimeout(r, POLL_BACKOFF_MS[i]));
+              try {
+                const st = await fetch(`${GOAL_HOST_ENDPOINT}/resolve`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+                  body: JSON.stringify({ impulse: { pointer: { type: "activeDispatches" } } }),
+                  signal: AbortSignal.timeout(10_000),
+                });
+                if (!st.ok) continue;
+                const sj = await st.json() as { body?: { dispatches?: Array<{ dispatchId?: string; status?: string; reached?: boolean | null }> } };
+                const rec = (sj.body?.dispatches ?? []).find((d) => d.dispatchId === dispatchId);
+                if (!rec) continue;
+                sawRunning = true;
+                // Terminal iff it has left "running". `reached` is the honest verdict:
+                // a completed-but-hollow dispatch is a real failure and must debit.
+                if (rec.status && rec.status !== "running") {
+                  recordOutcomeByTemplate(templateId, rec.reached === true);
+                  console.log(`[gap-goal/grade] ${templateId} dispatch=${dispatchId} terminal status=${rec.status} reached=${String(rec.reached)} after ${i + 1} polls`);
+                  return;
+                }
+              } catch {
+                // Transport fault reading the status is not an answer about the work.
+                continue;
+              }
             }
-          }, GAP_GOAL_GRADE_DELAY_MS).unref?.();
+            console.warn(`[gap-goal/grade] ${templateId} dispatch=${dispatchId} NOT GRADED — no terminal status within ${POLL_BACKOFF_MS.reduce((a, b) => a + b, 0) / 1000}s (${sawRunning ? "still running" : "never observed"}). Recording no outcome; a deadline is not a verdict.`);
+          })().catch(() => { /* never grade on an error in the grader itself */ });
         }
         return { dispatch_id: dispatchId || "gap-goal-dispatch", success: true };
       } catch {
