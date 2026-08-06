@@ -184,7 +184,27 @@ export async function generateGapGoalCandidates(
       // out_of_mount_target dominated by vesselCapability/goal-walk/substrate). Skip minting these
       // here; a real producer needs the localizer-clamp author-new-resolver path (targets a real
       // vessel), not the boredom edit path — filed as a gap. Do not burn compose cycles mis-localizing.
-      if (g.category === "missing_capability" && /needs a producer for shape/i.test(g.summary)) continue;
+      // CATEGORY-LAUNDERING HOLE (2026-08-06). The guard here was keyed on
+      // `category === "missing_capability"`, but when the compose this route
+      // dispatches fails, goal-host re-mints the SAME confabulated gap under
+      // category "edit_intent_route" (goal-host-vessel/src/index.ts:7455) — so the
+      // family escapes its own guard by changing category and is re-dispatched
+      // forever. Measured on the live open corpus (655 gaps): 174 carry "needs a
+      // producer for shape"; 53 are missing_capability (blocked here) and 121 are
+      // edit_intent_route (escaping) — and 119 of those 121 name a shape discovery
+      // ADVERTISES right now (feature_compose 115, gitDiff 4), so the gap's own
+      // premise is false. The category is not evidence; predicate on the claim.
+      // NOTE: this matches the phrase ANYWHERE in the summary, so a genuine gap
+      // that quotes it — including a meta-gap about this hole — is also skipped;
+      // the warn below is what makes that visible.
+      // The warn fires only for the laundered case, so the journal distinguishes
+      // "this widening is live and catching re-mints" from "guard unchanged".
+      if (/needs a producer for shape/i.test(g.summary)) {
+        if (g.category !== "missing_capability") {
+          console.warn(`[gap-goal-supply] SKIP laundered missing-producer gap ${g.id} category=${g.category ?? "(none)"} — confabulated family re-minted under a non-missing_capability category`);
+        }
+        continue;
+      }
       if (Array.from(activeGoals).some((goal) => goal.startsWith(`Close substrate gap ${g.id}`))) continue;
       if (/^\s*Close substrate gap [-\w:.!]+:?\s*$/.test(g.summary)) continue;
       if (!/capability|repair/i.test(g.summary)) continue;
