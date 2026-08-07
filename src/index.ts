@@ -2521,6 +2521,19 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
       body: JSON.stringify({ impulse: { type: "rhythm_conductor_tick" } }),
       signal: AbortSignal.timeout(4_000),
     }).catch(() => {});
+    // Change-series advance. Deliberately hosted HERE rather than in development-vessel:
+    // a step's mitosis cutover restarts the vessel it edits, and development-vessel
+    // restarts ~27x/24h against this vessel's ~6, so a series driven from there would be
+    // killed between its own steps. The callee holds no state between ticks — the plan
+    // lives in the pool on a named volume — so a restart costs at most one tick.
+    // Same fail-open shape as the heartbeat above: a series that cannot advance must
+    // never be able to stall the rhythm loop.
+    await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { type: "change_series_tick" } }),
+      signal: AbortSignal.timeout(4_000),
+    }).catch(() => {});
     const rhRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
