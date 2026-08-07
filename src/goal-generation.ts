@@ -216,7 +216,38 @@ export async function generateGapGoalCandidates(
       }
       if (Array.from(activeGoals).some((goal) => goal.startsWith(`Close substrate gap ${g.id}`))) continue;
       if (/^\s*Close substrate gap [-\w:.!]+:?\s*$/.test(g.summary)) continue;
-      if (!/capability|repair/i.test(g.summary)) continue;
+      // ACTIONABILITY IS A PROPERTY OF THE GAP, NOT OF ITS PROSE.
+      //
+      // This gate was `/capability|repair/i.test(g.summary)` — a keyword match over free
+      // text deciding whether a gap may become a goal at all. Measured on the live store:
+      // it drops 247 of 524 open gaps (47%), including 100% of `ui_legibility`.
+      //
+      // That is fatal for the human-feedback funnel specifically. A person writing
+      // "boldface the content section. And allow me to copy the contents to the Windows
+      // clipboard" is filing a real, actionable interface gap — it just contains neither
+      // the word "capability" nor "repair", so it could never be selected. The same
+      // ui-feedback-<region>-<kind> keying carries substrate-DETECTED legibility
+      // violations from ui_legibility_scan, so both halves of that funnel were excluded
+      // by vocabulary. An open example sat unrouted for 8 hours with nothing having
+      // attempted it.
+      //
+      // Predicate on the structured `category` first — that field is assigned by the
+      // detector that filed the gap and means what it says — and keep the prose match
+      // only as a fallback for gaps that carry no category. Same correction as the
+      // laundering guard above, in the other direction: there the CATEGORY was not
+      // evidence for the claim; here the PROSE is not evidence for actionability.
+      //
+      // Deliberately narrow. ui_legibility is added because it is a real, human-facing,
+      // currently-100%-excluded class. edit_intent_route is deliberately NOT added even
+      // though 73 of its members are dropped here — it is the autocatalytic family, and
+      // widening it would re-open the loop 7868111 just closed. Ordering matters: cut the
+      // autocatalysis first, then widen.
+      const ACTIONABLE_CATEGORIES = new Set(["ui_legibility"]);
+      const categoryActionable = ACTIONABLE_CATEGORIES.has(String(g.category ?? ""));
+      if (!categoryActionable && !/capability|repair/i.test(g.summary)) continue;
+      if (categoryActionable && !/capability|repair/i.test(g.summary)) {
+        console.log(`[gap-goal-supply] ADMITTED by category ${g.category} (prose gate would have dropped it): ${g.id}`);
+      }
       if (seen.has(g.id)) continue;
       seen.add(g.id);
       // FIRST-SENTENCE IS A SUMMARISER, NOT A TRUNCATOR. Taking sentence one is right
