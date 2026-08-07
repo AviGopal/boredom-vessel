@@ -295,9 +295,28 @@ export async function generateGapGoalCandidates(
   if (out.length >= 5) break;
   continue;
 }
+      // CARRY THE EDIT SITE AND REGION INTO THE GOAL TEXT.
+      //
+      // This dispatch sends only { goal, tags } to /run-goal — no gap object — so
+      // everything the gap knows is lost unless it is IN THE TEXT. Two consequences,
+      // both observed on the live UI gap: goal-host's edit-intent detection greps the
+      // goal for a repos/<vessel>/src path, finds none, and routes the walk generically
+      // (it reached the floor emitting `uiFeedback_write` — writing more feedback rather
+      // than changing the panel); and feature_compose receives no gapMeta, so neither
+      // the region grounding nor the region-containment gate can fire, because both key
+      // on classification_metadata.region. The drafter returned ops:[].
+      //
+      // Naming the file makes the goal edit-intent-routable; naming the region gives the
+      // drafter the anchor and re-arms the containment check. Both are appended only
+      // when present, so gaps without them are unchanged.
+      const gMeta = (g.classification_metadata ?? {}) as Record<string, unknown>;
+      const gSite = String(gMeta.edit_site ?? "").trim();
+      const gRegion = String(gMeta.region ?? "").trim();
+      const siteSuffix = gSite ? ` Edit ${gSite}` : "";
+      const regionSuffix = gRegion ? ` in the region "${gRegion}"` : "";
       out.push({
         templateId: `gap-goal:${g.id}`,
-        goalText: sanitizeGoalText(`Close substrate gap ${g.id}: ${firstSentence}`),
+        goalText: sanitizeGoalText(`Close substrate gap ${g.id}: ${firstSentence}${siteSuffix}${regionSuffix}${siteSuffix ? "." : ""}`),
         shapes: ["canonicalized_gap_identity"],
         source: "gap_generated",
         gapId: g.id,
