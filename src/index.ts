@@ -2387,7 +2387,19 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
   const nextPriorityByShape = new Map<string, number>();
   let nextFloor = 1.0;
   try {
-    const gapsRaw = await fs.readFile("/workspace/gaps/gaps.json", "utf8").catch(() => "");
+    // THE PRIORITY MAP WAS BUILT FROM A DEAD STORE.
+    //
+    // Candidates for gap-goals come from the pool (live), but this urgency map was
+    // read from the literal /workspace/gaps/gaps.json — a copy frozen 2026-08-08 —
+    // so selection was ranking live work by the priorities of gaps that no longer
+    // exist. substrate-gap.ts writes the store under WORKSPACE_ROOT; follow it.
+    //
+    // Only the gap store moved. /workspace/proposals and /workspace/mitosis-pending.json
+    // above are deliberately left alone: those ARE the live paths (compose-lessons.jsonl
+    // is still written under /workspace/proposals), and "correcting" them together
+    // would break the half that works.
+    const gapsStorePath = `${process.env["WORKSPACE_ROOT"] ?? "/workspace"}/gaps/gaps.json`;
+    const gapsRaw = await fs.readFile(gapsStorePath, "utf8").catch(() => "");
     if (gapsRaw) {
       type GapRow = { id?: string; status?: string; scenario_id?: string; severity?: string | null; priority_hint?: string | null; category?: string | null; expected_output_shapes?: string[] };
       const parsed = JSON.parse(gapsRaw) as GapRow[] | { gaps?: GapRow[] };
