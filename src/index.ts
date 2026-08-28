@@ -3019,7 +3019,12 @@ async function hydrateMomentum(): Promise<void> {
         ),
       };
       pruneStaleOutcomes(m);
-      if (m.outcomes.length === 0) continue;
+      // A template pruned to zero outcomes is DORMANT, not unknown — keep it so the
+      // snapshot can carry a picks:0 row. Dropping it here is why detector_meta_scan
+      // and detector_yield_registry could never observe dormancy: with OUTCOME_TTL_MS
+      // at one hour, anything idle for an hour vanished on the next hydration.
+      // Downstream readers already treat a missing entry and an empty one alike
+      // (see the coldPool filter, which uses outcomes.length ?? 0 === 0).
       // Decay momentum on hydration for templates with zero recent delta-bearing completions.
       // A template whose persisted momentum is high but that has produced no behavioral
       // delta (finding, side-effect, or novel output) within the demotion window gets capped
@@ -3234,8 +3239,10 @@ function writeSelectorStateSnapshot(): void {
     for (const [tid, m] of momentumByTemplate.entries()) {
       pruneStaleOutcomes(m);
       const picks = m.outcomes.length;
-      if (picks === 0) continue;
-      const mean = m.outcomes.reduce((s, o) => s + o.reward, 0) / picks;
+      // Zero-pick templates MUST appear in the snapshot: detector_meta_scan and
+      // detector_yield_registry define dormancy as picks < 1 over this array, so
+      // skipping them made dormant_count a tautology that could only ever be 0.
+      const mean = picks === 0 ? 0 : m.outcomes.reduce((s, o) => s + o.reward, 0) / picks;
       // Novel-yield: of the productive (finding-bearing) ticks in-window, what
       // fraction surfaced something NEW. null when no productive ticks (idle-only
       // detector — a different signal than redundant-pinned).
@@ -3257,8 +3264,12 @@ function writeSelectorStateSnapshot(): void {
         value_per_sec: ecost > 0 ? Math.round((mean / (ecost / 1000)) * 1000) / 1000 : null,
       });
     }
-    const n = perTemplate.length;
-    const means = perTemplate.map((t) => t.mean);
+    // Saturation/novelty statistics stay on the ACTIVE population — their
+    // thresholds were tuned there, and dormant rows would drag the means down.
+    // The emitted templates[] array keeps every row so dormancy is observable.
+    const active = perTemplate.filter((t) => t.picks > 0);
+    const n = active.length;
+    const means = active.map((t) => t.mean);
     const avg = n ? means.reduce((s, v) => s + v, 0) / n : 0;
     const variance = n ? means.reduce((s, v) => s + (v - avg) ** 2, 0) / n : 0;
     // Saturation: fraction of sampled templates whose mean is pinned high. When
@@ -3307,7 +3318,7 @@ function writeSelectorStateSnapshot(): void {
         // cost-efficient templates — the trace-inspectable signal that the cost-aware
         // selection is actually shifting allocation (status≠acceptance, watched over
         // a window). Computed over templates with a defined value_per_sec.
-        const vps = perTemplate.filter((t) => t.value_per_sec !== null) as Array<{ picks: number; value_per_sec: number }>;
+        const vps = active.filter((t) => t.value_per_sec !== null) as Array<{ picks: number; value_per_sec: number }>;
         const allocEff = (() => {
           if (vps.length < 3) return null;
           const unw = vps.reduce((s, t) => s + t.value_per_sec, 0) / vps.length;
