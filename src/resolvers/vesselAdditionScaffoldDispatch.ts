@@ -126,72 +126,90 @@ export async function resolveVesselAdditionScaffoldDispatch(
     target_branch: `feat/scaffold-${vessel_name}`,
   };
 
-  // Check learned success rate of the scaffold template before dispatching
-  const templateIdForLookup = SCAFFOLD_TEMPLATE_ID.replace(/^activity:/, "").replace(/^⟨(.*)⟩$/, "$1");
-  let shouldDecline = false;
-  let declineAlpha: number | null = null;
-  let declineBeta: number | null = null;
-  let declineRate: number | null = null;
-
-  try {
-    const activityApiEndpoint = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    const apiKey = process.env.METABOB_API_KEY;
-    if (apiKey && apiKey.length > 0) {
-      headers.Authorization = `ApiKey ${apiKey}`;
+  // CONSULT THE LEARNED POSTERIOR BEFORE INVOKING (2026-09-06).
+  //
+  // This resolver invokes SCAFFOLD_TEMPLATE_ID by hardcoded id straight at
+  // /run-goal, which skips activity selection entirely — so the Thompson
+  // posterior, the one component whose whole job is to weigh what happened last
+  // time, is never consulted. Measured on the live substrate at the time of
+  // writing: thompson_alpha 6.05 against thompson_beta 8585.68, one success
+  // against 7980 failures, and every one of the 2320 executions recorded in the
+  // trace store carries status "failure". The arm was still being invoked
+  // minutes before this was written. The evidence existed, in the right table,
+  // updated continuously; nothing on this path read it.
+  //
+  // PROCEED ON ABSENCE OF EVIDENCE. Every failure to obtain a posterior — no
+  // matching template, network error, unparseable body, missing or non-finite
+  // metric — falls through and dispatches exactly as before. A template with no
+  // history must stay reachable, or this guard becomes a permanent off switch
+  // for new capability, which is the failure shape of a threshold that can
+  // never be met.
+  const declined = await (async (): Promise<
+    { template_id: string; alpha: number; beta: number; rate: number } | null
+  > => {
+    try {
+      const base = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
+      const key = process.env.METABOB_API_KEY;
+      // BY-ID, NOT A LIST SCAN. The list route
+      // (/v2/activities/templates?limit=N) reports total 2670 but caps the page
+      // at 100 and honours no larger limit, so a scan for one id silently
+      // misses and this guard would fail open forever — reviewed, typechecked
+      // and completely inert. Verified against the running substrate: the
+      // target is absent from the first page.
+      const res = await fetch(
+        `${base}/v2/activities/templates/${encodeURIComponent(SCAFFOLD_TEMPLATE_ID)}`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            ...(key ? { Authorization: `ApiKey ${key}` } : {}),
+          },
+        },
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        // metrics.* is the LEARNED posterior. The top-level thompson_alpha on a
+        // template is the static prior and is literally 1 on this very record —
+        // reading it instead would make this check unconditionally pass.
+        metrics?: { thompson_alpha?: number; thompson_beta?: number };
+      };
+      const alpha = data.metrics?.thompson_alpha;
+      const beta = data.metrics?.thompson_beta;
+      if (!Number.isFinite(alpha) || !Number.isFinite(beta)) return null;
+      const a = alpha as number;
+      const b = beta as number;
+      const total = a + b;
+      if (total < 100) return null;
+      const rate = a / total;
+      if (rate >= 0.01) return null;
+      return { template_id: SCAFFOLD_TEMPLATE_ID, alpha: a, beta: b, rate };
+    } catch {
+      return null;
     }
-    const templatesResponse = await fetch(`${activityApiEndpoint}/v2/activities/templates?limit=200`, {
-      method: "GET",
-      headers,
-    });
-    if (templatesResponse.ok) {
-      const templatesData = await templatesResponse.json();
-      const templates = templatesData.templates;
-      if (Array.isArray(templates)) {
-        const matched = templates.find((t: any) => t.identifier === templateIdForLookup);
-        if (matched && matched.metrics && typeof matched.metrics.thompson_alpha === "number" && typeof matched.metrics.thompson_beta === "number") {
-          const alpha = matched.metrics.thompson_alpha;
-          const beta = matched.metrics.thompson_beta;
-          if (Number.isFinite(alpha) && Number.isFinite(beta)) {
-            const total = alpha + beta;
-            const rate = total > 0 ? alpha / total : 0;
-            if (total >= 100 && rate < 0.01) {
-              shouldDecline = true;
-              declineAlpha = alpha;
-              declineBeta = beta;
-              declineRate = rate;
-            }
-          }
-        }
-      }
-    }
-  } catch {
-    // Ignore errors - proceed with dispatch
-  }
+  })();
 
-  if (shouldDecline && declineAlpha !== null && declineBeta !== null && declineRate !== null) {
-    console.log(`Declining dispatch for template ${SCAFFOLD_TEMPLATE_ID}: alpha=${declineAlpha}, beta=${declineBeta}, rate=${declineRate}`);
-    const result: VesselScaffoldDispatchResult = {
-      vessel_name,
-      port,
-      advertised_shapes_literal,
-      description,
-      commit_message,
-      pr_title,
-      pr_body,
-      dispatch_response: {
-        declined: true,
-        reason: "posterior_decisively_negative",
-        template_id: SCAFFOLD_TEMPLATE_ID,
-        alpha: declineAlpha,
-        beta: declineBeta,
-        rate: declineRate,
-      },
-      dispatched_at: new Date().toISOString(),
-    };
+  if (declined) {
+    console.warn(
+      `[vesselAdditionScaffoldDispatch] DECLINED dispatch of ${declined.template_id}: ` +
+        `learned posterior alpha=${declined.alpha.toFixed(2)} beta=${declined.beta.toFixed(2)} ` +
+        `rate=${declined.rate.toExponential(2)} — below the 0.01 floor over ${(declined.alpha + declined.beta).toFixed(0)} samples`,
+    );
     return {
       shape: VESSEL_SCAFFOLD_DISPATCH_RESULT_SHAPE,
-      body: result,
+      body: {
+        vessel_name,
+        port,
+        advertised_shapes_literal,
+        description,
+        commit_message,
+        pr_title,
+        pr_body,
+        dispatch_response: {
+          declined: true,
+          reason: "posterior_decisively_negative",
+          ...declined,
+        },
+        dispatched_at: new Date().toISOString(),
+      },
     };
   }
 
