@@ -126,6 +126,75 @@ export async function resolveVesselAdditionScaffoldDispatch(
     target_branch: `feat/scaffold-${vessel_name}`,
   };
 
+  // Check learned success rate of the scaffold template before dispatching
+  const templateIdForLookup = SCAFFOLD_TEMPLATE_ID.replace(/^activity:/, "").replace(/^⟨(.*)⟩$/, "$1");
+  let shouldDecline = false;
+  let declineAlpha: number | null = null;
+  let declineBeta: number | null = null;
+  let declineRate: number | null = null;
+
+  try {
+    const activityApiEndpoint = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const apiKey = process.env.METABOB_API_KEY;
+    if (apiKey && apiKey.length > 0) {
+      headers.Authorization = `ApiKey ${apiKey}`;
+    }
+    const templatesResponse = await fetch(`${activityApiEndpoint}/v2/activities/templates?limit=200`, {
+      method: "GET",
+      headers,
+    });
+    if (templatesResponse.ok) {
+      const templatesData = await templatesResponse.json();
+      const templates = templatesData.templates;
+      if (Array.isArray(templates)) {
+        const matched = templates.find((t: any) => t.identifier === templateIdForLookup);
+        if (matched && matched.metrics && typeof matched.metrics.thompson_alpha === "number" && typeof matched.metrics.thompson_beta === "number") {
+          const alpha = matched.metrics.thompson_alpha;
+          const beta = matched.metrics.thompson_beta;
+          if (Number.isFinite(alpha) && Number.isFinite(beta)) {
+            const total = alpha + beta;
+            const rate = total > 0 ? alpha / total : 0;
+            if (total >= 100 && rate < 0.01) {
+              shouldDecline = true;
+              declineAlpha = alpha;
+              declineBeta = beta;
+              declineRate = rate;
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore errors - proceed with dispatch
+  }
+
+  if (shouldDecline && declineAlpha !== null && declineBeta !== null && declineRate !== null) {
+    console.log(`Declining dispatch for template ${SCAFFOLD_TEMPLATE_ID}: alpha=${declineAlpha}, beta=${declineBeta}, rate=${declineRate}`);
+    const result: VesselScaffoldDispatchResult = {
+      vessel_name,
+      port,
+      advertised_shapes_literal,
+      description,
+      commit_message,
+      pr_title,
+      pr_body,
+      dispatch_response: {
+        declined: true,
+        reason: "posterior_decisively_negative",
+        template_id: SCAFFOLD_TEMPLATE_ID,
+        alpha: declineAlpha,
+        beta: declineBeta,
+        rate: declineRate,
+      },
+      dispatched_at: new Date().toISOString(),
+    };
+    return {
+      shape: VESSEL_SCAFFOLD_DISPATCH_RESULT_SHAPE,
+      body: result,
+    };
+  }
+
   const dispatchResponse = await fetch(RUN_GOAL_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
