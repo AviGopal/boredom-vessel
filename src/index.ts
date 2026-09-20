@@ -358,8 +358,7 @@ function sampleExternalGoal(tick: number): string | null {
   }
 }
 
-  "development-vessel:concept-relevance-backfill-v2",
-const AUTONOMOUS_GOALS: readonly string[] = [
+const AUTONOMOUS_GOALS: readonly string[] = ["development-vessel:concept-relevance-backfill-v2",
   // topology / coverage — explicit template names + output shapes to bypass high-alpha template bias
   "run the coverage-tick activity to measure substrate topology coverage and emit a coverageReport",
   "run the substrate-health-tick activity to check vessel health and emit a substrateHealthReport",
