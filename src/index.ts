@@ -4151,6 +4151,91 @@ async function dispatchOne(goalIdx: number, state: SubstrateState): Promise<{ di
 
 let poolLoopActive = false;
 let selectionWake: (() => void) | null = null;
+// SPEND ENVELOPE (value-per-cost-selection 4.3c). boredom dispatches goals and templates that
+// spend LLM calls, so it obeys the same fleet-wide envelope as development-vessel's auto-pick
+// (gap-to-feature.ts spendEnvelopeAllows): the newest open poolImpulse of shape spendEnvelope
+// across every poolImpulse producer discovery lists, and spent = the sum over every
+// llmSpendSummaryNode producer (one per node) of its current window plus the unexpired share of
+// its previous window. No record means no cap; unreadable blocks only after a record has been
+// seen, so behaviour is unchanged until an envelope exists. Cached 30 s.
+type BoredomEnvelope = { allow: boolean; reason: string; unreadable?: boolean };
+let boredomEnvelopeCache: { at: number; v: BoredomEnvelope } | null = null;
+let boredomEnvelopeSeen = false;
+async function boredomDiscoverResolveUrls(shape: string): Promise<string[] | null> {
+  try {
+    const r = await fetch(`${BOREDOM_DISCOVERY_ENDPOINT}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ pointer: { type: "vesselCapability", shape } }),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!r.ok) return null;
+    const vessels = ((await r.json()) as { content?: { vessels?: Array<{ endpoint?: string; resolve_endpoint?: string }> } }).content?.vessels;
+    if (!Array.isArray(vessels)) return null;
+    // resolve_endpoint is ABSOLUTE for some producers and a PATH for others: join only a path.
+    const urls = new Set<string>();
+    for (const v of vessels) {
+      const re = String(v.resolve_endpoint ?? "");
+      if (/^https?:\/\//.test(re)) urls.add(re);
+      else if (v.endpoint) urls.add(String(v.endpoint).replace(/\/+$/, "") + (re || "/resolve"));
+    }
+    return [...urls];
+  } catch { return null; }
+}
+async function boredomEnvelopePost(url: string, body: unknown): Promise<Record<string, unknown> | null> {
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!r.ok) return null;
+    return (await r.json()) as Record<string, unknown>;
+  } catch { return null; }
+}
+async function readBoredomEnvelope(): Promise<BoredomEnvelope> {
+  const [poolUrls, spendUrls] = await Promise.all([boredomDiscoverResolveUrls("poolImpulse"), boredomDiscoverResolveUrls("llmSpendSummaryNode")]);
+  if (!poolUrls || poolUrls.length === 0) return { allow: false, unreadable: true, reason: "envelope unreadable: no poolImpulse producer discovered" };
+  let newest: { updated_at?: string; body?: unknown } | null = null;
+  for (const u of poolUrls) {
+    const res = await boredomEnvelopePost(u, { impulse: { type: "poolImpulse", shape: "spendEnvelope", status: "open" } });
+    const imps = (res?.["body"] as { impulses?: unknown } | undefined)?.impulses;
+    if (!Array.isArray(imps)) return { allow: false, unreadable: true, reason: "envelope unreadable: no answer from " + u };
+    for (const imp of imps as Array<{ shape?: string; updated_at?: string; body?: unknown }>) {
+      if (imp.shape === "spendEnvelope" && (!newest || String(imp.updated_at ?? "") > String(newest.updated_at ?? ""))) newest = imp;
+    }
+  }
+  boredomEnvelopeSeen = newest !== null;
+  if (!newest) return { allow: true, reason: "no spendEnvelope record (no cap)" };
+  const env = (newest.body ?? {}) as { usd_cap_per_hour?: unknown; paused?: unknown; reason?: unknown };
+  if (env.paused === true) return { allow: false, reason: "paused: " + String(env.reason ?? "no reason given") };
+  const rawCap = env.usd_cap_per_hour;
+  if (rawCap !== undefined && rawCap !== null && !(typeof rawCap === "number" && Number.isFinite(rawCap))) return { allow: false, unreadable: true, reason: "envelope unreadable: usd_cap_per_hour is not a finite number" };
+  if (typeof rawCap !== "number") return { allow: true, reason: "spendEnvelope has no numeric usd_cap_per_hour (no cap)" };
+  if (!spendUrls || spendUrls.length === 0) return { allow: false, unreadable: true, reason: "envelope unreadable: no llmSpendSummaryNode producer discovered" };
+  let spent = 0;
+  for (const u of spendUrls) {
+    const res = await boredomEnvelopePost(u, { impulse: { pointer: { type: "llmSpendSummaryNode" } } });
+    const b = res?.["body"] as { window_ms?: number; current?: { window_start?: string; cost_usd?: number }; previous?: { cost_usd?: number } | null } | undefined;
+    if (!b || !b.current || typeof b.current.cost_usd !== "number") return { allow: false, unreadable: true, reason: "envelope unreadable: no spend summary from " + u };
+    const windowMs = Number(b.window_ms) > 0 ? Number(b.window_ms) : 3_600_000;
+    const elapsed = Date.now() - Date.parse(String(b.current.window_start ?? ""));
+    const prevShare = Number.isFinite(elapsed) ? Math.max(0, 1 - elapsed / windowMs) : 1;
+    spent += b.current.cost_usd + (typeof b.previous?.cost_usd === "number" ? b.previous.cost_usd * prevShare : 0);
+  }
+  if (spent >= rawCap) return { allow: false, reason: "exhausted: spent " + spent.toFixed(3) + " USD of " + rawCap + " USD/h over " + spendUrls.length + " spend source(s)" };
+  return { allow: true, reason: "within envelope: spent " + spent.toFixed(3) + " USD of " + rawCap + " USD/h" };
+}
+async function boredomEnvelopeAllows(): Promise<BoredomEnvelope> {
+  if (boredomEnvelopeCache && Date.now() - boredomEnvelopeCache.at < 30_000) return boredomEnvelopeCache.v;
+  let v: BoredomEnvelope;
+  try { v = await readBoredomEnvelope(); } catch (err) { v = { allow: false, unreadable: true, reason: "envelope unreadable: " + String(err) }; }
+  if (v.unreadable && !boredomEnvelopeSeen) v = { ...v, allow: true, reason: v.reason + " (no envelope seen yet: no cap)" };
+  boredomEnvelopeCache = { at: Date.now(), v };
+  return v;
+}
+
 async function poolLoop(): Promise<void> {
   if (poolLoopActive) {
     const w = selectionWake;
@@ -4172,7 +4257,18 @@ async function poolLoop(): Promise<void> {
   await refreshSignatureAndPosteriors();
   lastSigRefreshAt = Date.now();
   let lastStateRefresh = Date.now();
+  let lastEnvelopeLogAt = 0;
   while (running) {
+    // SPEND ENVELOPE (4.3c): paused, exhausted or unreadable means this tick dispatches nothing.
+    const envelope = await boredomEnvelopeAllows();
+    if (!envelope.allow) {
+      if (Date.now() - lastEnvelopeLogAt > 300_000) {
+        console.log(`[pool] not dispatching: spend envelope ${envelope.reason}`);
+        lastEnvelopeLogAt = Date.now();
+      }
+      await new Promise((r) => setTimeout(r, POOL_LOOP_INTERVAL_MS));
+      continue;
+    }
     reapStaleInFlight();
     if (Date.now() - lastStateRefresh > POOL_STATE_REFRESH_MS) {
       state = await refreshSubstrateState();
