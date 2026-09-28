@@ -214,7 +214,7 @@ export async function generateGapGoalCandidates(
         }
         continue;
       }
-      if (Array.from(activeGoals).some((goal) => goal.startsWith(`Close substrate gap ${g.id}`))) continue;
+      if (Array.from(activeGoals).some((goal) => goal.startsWith(`Close substrate gap ${g.id}`) || goal.startsWith(`investigate and decompose gap ${g.id}`))) continue;
       if (/^\s*Close substrate gap [-\w:.!]+:?\s*$/.test(g.summary)) continue;
       // ACTIONABILITY IS A PROPERTY OF THE GAP, NOT OF ITS PROSE.
       //
@@ -316,7 +316,11 @@ export async function generateGapGoalCandidates(
       const regionSuffix = gRegion ? ` in the region "${gRegion}"` : "";
       out.push({
         templateId: `gap-goal:${g.id}`,
-        goalText: sanitizeGoalText(`Close substrate gap ${g.id}: ${firstSentence}${siteSuffix}${regionSuffix}${siteSuffix ? "." : ""}`),
+        // No edit site: a Close goal is judged only by a landed edit, which nothing can produce here,
+        // so ask for the investigation that decomposes it into sited, falsifiable steps instead.
+        goalText: sanitizeGoalText(gSite
+          ? `Close substrate gap ${g.id}: ${firstSentence}${siteSuffix}${regionSuffix}.`
+          : `investigate and decompose gap ${g.id}: ${firstSentence}`),
         shapes: ["canonicalized_gap_identity"],
         source: "gap_generated",
         gapId: g.id,
