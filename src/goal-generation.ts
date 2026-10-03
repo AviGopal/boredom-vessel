@@ -95,6 +95,42 @@ export function admitActionableGapsMirror<T extends { id: string; category?: str
   });
 }
 
+// ── OWNERSHIP FILTER — gaps this supply must not walk at ─────────────────────────────────
+// This supply dispatches WALKS (POST /run-goal, tags boredom_autonomous + gap_generated), and a
+// walk can write substrateGap_write on the gap it was dispatched at. Measured: two such walks
+// closed, re-sourced and overwrote the summary of operator-owned gaps with no verdict. A gap
+// that already has an owner is not idle work:
+//   directed        — handed to a specific compose (top-level or classification_metadata flag)
+//   operator_hold   — the operator froze it (dev-vessel also hides these from the default open
+//                     read; this is the supply-side check in case a window ever carries one)
+//   human_reported  — a human resolver filed it; the operator owns its disposition
+//   operator_supply — classification_metadata.supply names an operator finding
+//   excluded_site   — edit_site is marked "(excluded: operator)": outside the autonomy scope
+//   class2_armed    — falsifier class2 with an evidence_resolve: the compose lane's
+//                     (gap_to_feature) to close against its measured check, not a walk's
+// NOT checked here: edit_site paths inside the autonomy scope's excluded list — this supply
+// does not read the autonomy scope, so only the explicit "(excluded: operator)" marker is seen.
+export type OwnershipDropReason = "directed" | "operator_hold" | "human_reported" | "operator_supply" | "excluded_site" | "class2_armed";
+export function operatorOwnedReason(g: { source?: unknown; directed?: unknown; classification_metadata?: Record<string, unknown> }): OwnershipDropReason | null {
+  const meta = (g.classification_metadata ?? {}) as Record<string, unknown>;
+  if (g.directed === true || meta.directed === true) return "directed";
+  if (meta.operator_hold === true) return "operator_hold";
+  if (g.source === "human_reported") return "human_reported";
+  if (/^operator/i.test(String(meta.supply ?? ""))) return "operator_supply";
+  if (String(meta.edit_site ?? "").includes("(excluded: operator)")) return "excluded_site";
+  if (meta.falsifier === "class2" && meta.evidence_resolve != null) return "class2_armed";
+  return null;
+}
+export function dropOperatorOwnedGaps<T extends { source?: unknown; directed?: unknown; classification_metadata?: Record<string, unknown> }>(gaps: T[]): { kept: T[]; dropped: Record<OwnershipDropReason, number> } {
+  const dropped: Record<OwnershipDropReason, number> = { directed: 0, operator_hold: 0, human_reported: 0, operator_supply: 0, excluded_site: 0, class2_armed: 0 };
+  const kept = gaps.filter((g) => {
+    const reason = operatorOwnedReason(g);
+    if (reason) dropped[reason]++;
+    return reason === null;
+  });
+  return { kept, dropped };
+}
+
 export async function generateGapGoalCandidates(
   activityApiEndpoint: string,
   apiKey: string,
@@ -119,10 +155,13 @@ export async function generateGapGoalCandidates(
       body?: { gaps?: Array<{ id: string; summary: string; gap_subtype?: string }> };
       gaps?: Array<{ id: string; summary: string; gap_subtype?: string }>;
     };
-    const rawGaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; gap_subtype?: string; category?: string; detected_at?: string; classification_metadata?: Record<string, unknown> }>;
+    const rawGaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; gap_subtype?: string; category?: string; detected_at?: string; source?: string; directed?: boolean; classification_metadata?: Record<string, unknown> }>;
     // ONE ADMISSION POLICY: pass the raw window through the mirrored dev-vessel admission
     // gate BEFORE any scoring/minting (see admitActionableGapsMirror above).
-    const gaps = admitActionableGapsMirror(rawGaps);
+    const admitted = admitActionableGapsMirror(rawGaps);
+    // Then drop gaps another owner holds (see OWNERSHIP FILTER above), audibly, per reason.
+    const { kept: gaps, dropped: ownedDropped } = dropOperatorOwnedGaps(admitted);
+    console.warn(`[gap-goal-supply] owner-held dropped ${Object.entries(ownedDropped).map(([r, n]) => `${r}=${n}`).join(" ")}`);
     const CATEGORY_WEIGHT: Record<string, number> = { missing_capability: 3, unreachable_producer: 2.5, operational_health: 2.5, detector_coverage_gap: 2, decision_without_action: 2, posterior_consistency_drift: 1.5, architectural_pattern: 1.5, residual_shape_proposal: 1, orphaned_capability: 0.5 };
     gaps.sort((a, b) => { const wa = CATEGORY_WEIGHT[a.category ?? ""] ?? 1; const wb = CATEGORY_WEIGHT[b.category ?? ""] ?? 1; if (wb !== wa) return wb - wa; const da = Number(a.detected_at ? Date.parse(a.detected_at) : 0); const db = Number(b.detected_at ? Date.parse(b.detected_at) : 0); if (db !== da) return db - da; return String(b.detected_at ?? "").localeCompare(String(a.detected_at ?? "")); });
     // Baseline doom-signals (a broken package baseline blocks ALL self-authoring
@@ -381,7 +420,7 @@ export async function generateGapGoalCandidates(
     // gap" and "candidates existed but scored below the tick arms" remain
     // indistinguishable — and they need different fixes. These counts separate
     // them in one line, at no cost.
-    console.warn(`[gap-goal-supply] candidates=${out.length} raw_gaps=${rawGaps.length} admitted=${gaps.length}`);
+    console.warn(`[gap-goal-supply] candidates=${out.length} raw_gaps=${rawGaps.length} admitted=${admitted.length} unowned=${gaps.length}`);
     return out;
   } catch (e) {
     // Same reasoning as the !res.ok branch above: a silent [] here is
