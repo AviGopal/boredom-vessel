@@ -21,7 +21,17 @@ function count(hay: string, needle: string): number {
 }
 
 describe("grader #1 call site — dispatchByTemplateId", () => {
-  const body = fnBody("async function dispatchByTemplateId(");
+  // Only the gap-goal branch posts to goal-host; the template paths below it
+  // grade their own (light-dispatch) outcomes and are out of scope here.
+  const whole = fnBody("async function dispatchByTemplateId(");
+  const body = whole.slice(
+    whole.indexOf('if (templateId.startsWith("gap-goal:"))'),
+    whole.indexOf("const unboundVars = await fetchTemplateRequiredUnboundVariables("),
+  );
+
+  test("the gap-goal branch was located", () => {
+    expect(body.length).toBeGreaterThan(0);
+  });
 
   test("the POST verdict goes through settleGapGoalPost with recordOutcomeByTemplate injected", () => {
     expect(body).toContain("settleGapGoalPost(res, templateId, { recordOutcome: recordOutcomeByTemplate");

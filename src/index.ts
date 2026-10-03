@@ -26,6 +26,7 @@
 
 import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditionScaffoldDispatch";
 import { generateGapGoalCandidates } from "./goal-generation";
+import { settleGapGoalPost, settleOneShotDispatch } from "./dispatch-refusal";
 import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
 
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
@@ -1962,13 +1963,12 @@ async function main(): Promise<void> {
     }
   }
 
-  if (!res.ok && res.status !== 202 && res.status !== 207) {
-    const dispatchGapId = String(targetTemplateId ?? goal ?? "unknown");
-    await handleDispatchGapFailure(dispatchGapId, "semantic_reject");
-    const text = await res.text().catch(() => "(no body)");
-    console.error(`[boredom-vessel] ${dispatcher} HTTP ${res.status}: ${text}`);
-    process.exit(1);
-  }
+  // A goal-host restart refusal exits 0 with no semantic_reject lesson; any
+  // other non-ok response writes the lesson and exits 1 (see dispatch-refusal.ts).
+  const settled = await settleOneShotDispatch(res, dispatcher, {
+    onFailure: () => handleDispatchGapFailure(String(targetTemplateId ?? goal ?? "unknown"), "semantic_reject"),
+  });
+  if (settled.exitCode !== null) process.exit(settled.exitCode);
 
   const dispatch = await res.json() as { dispatchId?: string; executionId?: string; status?: string; error?: string };
   if (dispatch.error) {
@@ -3612,10 +3612,10 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
           signal: AbortSignal.timeout(30_000),
         });
         recordCostByTemplate(templateId, Date.now() - costT0, 0);
-        if (!res.ok && res.status !== 202) {
-          recordOutcomeByTemplate(templateId, false);
-          return null;
-        }
+        // A goal-host restart refusal (503 draining/quiesced/retryable) is not
+        // graded and does not stamp the cooldown, so the next tick retries.
+        const verdict = await settleGapGoalPost(res, templateId, { recordOutcome: recordOutcomeByTemplate });
+        if (verdict !== "ok") return null;
         gapGoalLastDispatchAt.set(templateId, Date.now());
         const body = await res.json() as { dispatchId?: string };
         const dispatchId = body.dispatchId ?? "";
