@@ -1,0 +1,202 @@
+[
+  {
+    "name": "ACTIVITY_API_ENDPOINT",
+    "class": "bootstrap",
+    "reason": "peer endpoint URL: activity-api (read in src/index.ts, src/resolvers/vesselAdditionScaffoldDispatch.ts)"
+  },
+  {
+    "name": "BOREDOM_AUTOPROMOTE_INTERVAL_MS",
+    "class": "behaviour",
+    "reason": "pool autopromote cadence (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_DAEMON_MODE",
+    "class": "behaviour",
+    "reason": "mode switch: run the daemon loop (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_DISPATCHER_COMPARISON_INTERVAL",
+    "class": "behaviour",
+    "reason": "dispatcher comparison cadence (cycles) (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_DISPATCHER_COUNTER_FILE",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: dispatcher cycle counter file (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_DISPATCHER_EXPLORATION_RATE",
+    "class": "behaviour",
+    "reason": "dispatcher exploration rate (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_DISPATCH_LOG_PATH",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: dispatch log file (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_EXERCISE_BUDGET",
+    "class": "behaviour",
+    "reason": "exercise budget (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_EXERCISE_COOLDOWN_MS",
+    "class": "behaviour",
+    "reason": "exercise cooldown (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_EXERCISE_INTERVAL_MS",
+    "class": "behaviour",
+    "reason": "exercise cadence (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_EXERCISE_SUCCESS_RETRY_MS",
+    "class": "behaviour",
+    "reason": "exercise retry delay after success (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_GAP_FAILURE_LESSONS_FILE",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: gap failure lessons file (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_GOAL_INDEX_FILE",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: goal index file (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_IDLE_DEMOTION_WINDOW_MS",
+    "class": "behaviour",
+    "reason": "idle demotion window (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_IDLE_WINDOW_SECONDS",
+    "class": "behaviour",
+    "reason": "idle window that triggers boredom (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_IN_FLIGHT_TIMEOUT_MS",
+    "class": "behaviour",
+    "reason": "in-flight dispatch timeout (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_MAX_CONCURRENT",
+    "class": "behaviour",
+    "reason": "concurrency cap (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_MIN_DISPATCH_INTERVAL_MS",
+    "class": "behaviour",
+    "reason": "minimum dispatch interval (throttle) (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_MOMENTUM_DEMOTION_FLOOR",
+    "class": "behaviour",
+    "reason": "momentum demotion threshold (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_MOMENTUM_STORE_PATH",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: momentum store file (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_POOL_LOOP_INTERVAL_MS",
+    "class": "behaviour",
+    "reason": "pool loop cadence (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_PRIORITY_WEIGHT_HIGH",
+    "class": "behaviour",
+    "reason": "selection weight for high priority (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_PRIORITY_WEIGHT_MEDIUM",
+    "class": "behaviour",
+    "reason": "selection weight for medium priority (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_SIG_CONTINUITY_GAIN",
+    "class": "behaviour",
+    "reason": "signature continuity gain in selection (read in src/index.ts)"
+  },
+  {
+    "name": "BOREDOM_STATE_REFRESH_MS",
+    "class": "behaviour",
+    "reason": "pool state refresh cadence (read in src/index.ts)"
+  },
+  {
+    "name": "CONCEPT_DB_ENDPOINT",
+    "class": "bootstrap",
+    "reason": "peer endpoint URL: concept-db (read in src/goal-generation.ts)"
+  },
+  {
+    "name": "DETECTOR_CLOSURE_LEDGER_PATH",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: detector closure ledger file (read in src/index.ts)"
+  },
+  {
+    "name": "DEV_VESSEL_ENDPOINT",
+    "class": "bootstrap",
+    "reason": "peer endpoint URL: development-vessel (read in src/goal-generation.ts, src/index.ts)"
+  },
+  {
+    "name": "DISCOVERY_ENDPOINT",
+    "class": "bootstrap",
+    "reason": "peer endpoint URL: discovery (read in src/index.ts)"
+  },
+  {
+    "name": "DISCOVERY_VESSEL_ENDPOINT",
+    "class": "bootstrap",
+    "reason": "peer endpoint URL: discovery (read in src/index.ts)"
+  },
+  {
+    "name": "EXTERNAL_DEMAND_EVERY",
+    "class": "behaviour",
+    "reason": "every-N cadence for external demand (read in src/index.ts)"
+  },
+  {
+    "name": "GAP_GOAL_COOLDOWN_MS",
+    "class": "behaviour",
+    "reason": "per-gap goal cooldown (read in src/index.ts)"
+  },
+  {
+    "name": "GOAL_HOST_ENDPOINT",
+    "class": "bootstrap",
+    "reason": "peer endpoint URL: goal-host (read in src/goal-generation.ts)"
+  },
+  {
+    "name": "GOAL_HOST_VESSEL_ENDPOINT",
+    "class": "bootstrap",
+    "reason": "peer endpoint URL: goal-host (read in src/index.ts)"
+  },
+  {
+    "name": "LIGHT_DISPATCH_ENDPOINT",
+    "class": "bootstrap",
+    "reason": "peer endpoint URL: light-dispatch (read in src/index.ts)"
+  },
+  {
+    "name": "METABOB_API_KEY",
+    "class": "bootstrap",
+    "reason": "credential/secret: service-to-service API key (read in src/index.ts, src/resolvers/vesselAdditionScaffoldDispatch.ts)"
+  },
+  {
+    "name": "SCENARIOS_DIR",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: failure-mode scenarios dir (read in src/index.ts)"
+  },
+  {
+    "name": "SUBSTRATE_ROOT",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: substrate root (read in src/index.ts)"
+  },
+  {
+    "name": "SUBSTRATE_SUPER_REPO_NAME",
+    "class": "bootstrap",
+    "reason": "identity/node name: super-repo name (read in src/index.ts)"
+  },
+  {
+    "name": "WORKSPACE_ROOT",
+    "class": "bootstrap",
+    "reason": "filesystem root/path: workspace root (read in src/index.ts)"
+  }
+]
