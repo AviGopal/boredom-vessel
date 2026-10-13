@@ -28,6 +28,7 @@ import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditio
 import { generateGapGoalCandidates } from "./goal-generation";
 import { settleGapGoalPost, settleOneShotDispatch } from "./dispatch-refusal";
 import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
+import { DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseSelectionTrapPolicy, scoreTemplate, type SelectionTrapPolicy } from "./selection-traps";
 
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
 const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
@@ -2448,6 +2449,23 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
   } catch { /* ignore */ }
   priorityWeightByShape = nextPriorityByShape;
   priorityFloorWeight = nextFloor;
+  // Selection traps: the shaped boredomSelectionPolicy (idle cost decay, cold-window failure recovery).
+  // Absent → defaults; present but invalid → defaults, said once per distinct reason; unreachable → keep the last read.
+  try {
+    const spRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { pointer: { type: "poolImpulse", shape: "boredomSelectionPolicy", status: "open", limit: 1 } } }),
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (spRes.ok) {
+      const spData = (await spRes.json()) as { body?: { impulses?: Array<{ body?: unknown }> } };
+      const parsed = parseSelectionTrapPolicy(spData?.body?.impulses?.[0]?.body ?? null);
+      selectionTrapPolicy = parsed.policy;
+      if (!parsed.ok && parsed.why !== selectionTrapPolicyWhy) console.warn(`[pool/selection-traps] boredomSelectionPolicy invalid, defaults used: ${parsed.why}`);
+      selectionTrapPolicyWhy = parsed.ok ? "" : (parsed.why ?? "");
+    }
+  } catch { /* unreachable — keep the last policy */ }
   // Seam 2b: read the selectionEntropy producer's collapsed flag. When the
   // selection distribution has collapsed, raise explorationBoost so ucbScore
   // widens the UCB explore term toward under-sampled candidates; otherwise reset
@@ -2852,7 +2870,7 @@ function persistMomentum(): void {
   const now = Date.now();
   if (now - lastMomentumWriteAt < 5000) return;
   lastMomentumWriteAt = now;
-  const snapshot = JSON.stringify({ totalPicks: totalPicksV24f, templates: Object.fromEntries([...momentumByTemplate.entries()].map(([k, v]) => [k, v.outcomes])), idle: Object.fromEntries(consecutiveIdleByTemplate), failures: Object.fromEntries(consecutiveFailureByTemplate) });
+  const snapshot = JSON.stringify({ totalPicks: totalPicksV24f, templates: Object.fromEntries([...momentumByTemplate.entries()].map(([k, v]) => [k, v.outcomes])), idle: Object.fromEntries(consecutiveIdleByTemplate), failures: Object.fromEntries(consecutiveFailureByTemplate), failures_at: Object.fromEntries(lastFailureAtByTemplate) });
   Bun.write(MOMENTUM_STORE_PATH, snapshot).catch(() => {});
 }
 const consecutiveIdleByTemplate = new Map<string, number>();
@@ -2868,6 +2886,12 @@ const consecutiveIdleByTemplate = new Map<string, number>();
 // This is pool conditioning — data the selector reads — not a blocklist: one
 // success (or idle) resets the streak, and the debit decays nothing permanently.
 const consecutiveFailureByTemplate = new Map<string, number>();
+// When each template's current failure streak last grew: the cold-window recovery (selection-traps.ts) forgives a
+// streak only after a quiet window, so a template that keeps failing while picked keeps its penalty.
+const lastFailureAtByTemplate = new Map<string, number>();
+// The shaped selection-trap policy (boredomSelectionPolicy), refreshed with the substrate state; defaults until read.
+let selectionTrapPolicy: SelectionTrapPolicy = { ...DEFAULT_SELECTION_TRAP_POLICY };
+let selectionTrapPolicyWhy = "";
 // Reward a clean-but-empty tick earns. Non-zero so health/observer detectors
 // stay periodically sampleable via the UCB explore bonus, but well below a
 // productive tick (1.0) so finding-producing detectors win more budget.
@@ -2930,8 +2954,10 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
   // (including an idle-but-clean tick at IDLE_REWARD) breaks the streak.
   if (reward <= 0) {
     consecutiveFailureByTemplate.set(templateId, (consecutiveFailureByTemplate.get(templateId) ?? 0) + 1);
+    lastFailureAtByTemplate.set(templateId, Date.now());
   } else {
     consecutiveFailureByTemplate.set(templateId, 0);
+    lastFailureAtByTemplate.delete(templateId);
   }
   let m: { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } | undefined = momentumByTemplate.get(templateId) as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } | undefined;
   if (!m || !Array.isArray((m as unknown as { outcomes?: unknown }).outcomes)) {
@@ -3001,6 +3027,7 @@ async function hydrateMomentum(): Promise<void> {
       templates?: Record<string, { outcome: "success" | "failure"; at: number; reward: number }[]>;
       idle?: Record<string, number>;
       failures?: Record<string, number>;
+      failures_at?: Record<string, number>;
     };
     if (typeof saved.totalPicks === "number" && saved.totalPicks > totalPicksV24f)
       totalPicksV24f = saved.totalPicks;
@@ -3051,7 +3078,13 @@ async function hydrateMomentum(): Promise<void> {
       if (typeof n === "number" && n > 0) consecutiveIdleByTemplate.set(tid, n);
     }
     for (const [tid, n] of Object.entries(saved.failures ?? {})) {
-      if (typeof n === "number" && n > 0) consecutiveFailureByTemplate.set(tid, n);
+      if (typeof n === "number" && n > 0) {
+        consecutiveFailureByTemplate.set(tid, n);
+        // A streak saved without its time (older snapshots) starts its cold clock now: unknown is not quiet, but a
+        // streak that never gets a clock could never recover.
+        const at = saved.failures_at?.[tid];
+        lastFailureAtByTemplate.set(tid, typeof at === "number" && Number.isFinite(at) ? at : Date.now());
+      }
     }
     console.error(
       `[pool] momentum hydrated: ${momentumByTemplate.size} templates, totalPicks=${totalPicksV24f}`,
@@ -3416,78 +3449,34 @@ function ucbScoreImpl(
   shapeAvail: number,
   priorityWeight = 1.0,
   unpickedCount: number = 1,
-): { score: number; reason: string } {
-  const pw = Number.isFinite(priorityWeight) && priorityWeight > 0 ? priorityWeight : 1.0;
+  policy: SelectionTrapPolicy = selectionTrapPolicy,
+): { score: number; reason: string; idle_cost_decayed?: boolean; cold_recovered?: boolean } {
+  void unpickedCount;
   const m = momentumByTemplate.get(templateId);
   if (m) pruneStaleOutcomes(m); // V27: ensure stale outcomes don't poison the score
+  const now = Date.now();
   const picks = m?.outcomes.length ?? 0;
-  if (picks === 0) {
-    const now = Date.now();
-    const coldCrowd = coldPickTimestamps.filter((t) => now - t <= 60_000).length;
-    const explorationBonus = (IDLE_REWARD + 1.4 * explorationBoost) * Math.max(shapeAvail, 1) * pw;
-    // Failure debit applies here too: outcome-TTL pruning can return a template to
-    // picks=0 while its consecutive-failure streak persists — without this the
-    // "cold" branch relaunders a 100%-failing template past the debit.
-    const cfCold = consecutiveFailureByTemplate.get(templateId) ?? 0;
-    const failDebitCold = cfCold >= 2 ? Math.pow(0.5, Math.min(cfCold, 10)) : 1;
-    return { score: (explorationBonus / (1 + coldCrowd)) * failDebitCold, reason: `ucb=cold picks=0 shape=${shapeAvail.toFixed(2)}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""} coldCrowd=${coldCrowd}${cfCold >= 2 ? ` fail×${cfCold}` : ""}` };
-  }
-  // V28: mean = average information-yield reward (not success fraction), so UCB
-  // exploits detectors that actually produce findings.
-  const mean = m!.outcomes.reduce((s, o) => s + o.reward, 0) / picks;
-  // Seam 2b: scale the exploration term by the module-level explorationBoost.
-  // explorationBoost === 1.0 (the default / not-collapsed state) leaves this
-  // identical to the pre-seam value, so this is behavior-preserving unless the
-  // selectionEntropy producer has flagged the selection distribution collapsed.
-  const explore = 1.4 * explorationBoost * Math.sqrt(2 * Math.log(Math.max(1, totalPicksV24f)) / picks);
-  const baseScore = mean + explore;
-  // V27 (2026-06-09): pipeline-pull is ADDITIVE when ratio=1.0 (all inputs fresh)
-  // so a chain template with low mean still gets prioritised when its upstream
-  // just fired. Previously shapeAvail multiplied the whole baseScore — a chain
-  // template at mean=0 with shapeAvail=2.0 scored 0+explore vs a deterministic
-  // template at mean=1.0 shape=1.0 scoring 1.0+explore, so the deterministic
-  // template always won. The additive +2.0 bonus dominates that gap.
-  const pipelinePull = shapeAvail >= 2.0 ? 2.0 : 0.0;
-  // V30 (2026-06-14): value-of-information per unit cost. Bias the exploit value
-  // toward templates that yield cheaply (faster wall-clock = more samples/sec =
-  // higher learning rate, §7). sqrt keeps it gentle; clamp to [0.5,2.0] so cost can
-  // neither dominate the exploration bonus nor zero a template. Cold-start (picks=0)
-  // already returned ∞ above, so unmeasured templates are still tried before cost
-  // ever applies — cost only discriminates among templates with a yield history.
-  const expCost = expectedCostMs(templateId);
-  const expTok = expectedCostTokens(templateId);
-  const costAdj = combinedCostAdj(templateId); // V31: combined over the cost vector {ms, tokens}
-  const rawScore = baseScore * costAdj * Math.max(shapeAvail, 1.0) + pipelinePull;
-  // NaN guard (2026-06-23): if costAdj (combinedCostAdj) ever returns NaN, rawScore
-  // is NaN — and the picker `!best || score > best.score` then PINS on it forever:
-  // the NaN candidate becomes best via `!best`, and every later finite score fails
-  // `finite > NaN`, so nothing replaces it. Observed live: the pool reserved
-  // mitosis-tick every ~5s → no_op, starving compose-topology-tick and ALL
-  // productive self-optimization. Fall back to the finite baseScore so a bad cost
-  // estimate can't hijack the selector.
-  const finiteScore = Number.isFinite(rawScore) ? rawScore : baseScore;
-  // C9: priority weight is the OUTERMOST multiplier — it scales whatever the
-  // cost/shape-availability machinery produced, so urgency preempts routine
-  // ticks without disturbing the relative ordering among equal-priority ticks.
-  // pw=1.0 ⇒ score === finiteScore (pre-C9 behavior).
-  let finalScore = finiteScore * pw;
-  let reason = `mean=${mean.toFixed(2)} ucb=${explore.toFixed(2)} cost=${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}×${costAdj.toFixed(2)}${Number.isFinite(rawScore) ? "" : "(NaN→base)"} picks=${picks} shape=${shapeAvail.toFixed(2)} pull=${pipelinePull}${pw > 1.0 ? ` prio=${pw.toFixed(2)}` : ""}`;
-  const ci = consecutiveIdleByTemplate.get(templateId) ?? 0;
-  if (ci >= 2) {
-    finalScore *= Math.pow(0.5, Math.min(ci, 4));
-    reason += ` idle×${ci}`;
-  }
-  // Failure debit — exponential in consecutive HARD failures, applied AFTER the
-  // priority multiplier so no floor (prio=3.00 gap-drain, mode boosts, …) can
-  // outvote a 100%-recent-failure record: 0.5^min(cf,10) reaches ~0.001 by cf=10.
-  // Deliberately deeper than the idle debit's 0.5^4 cap (a failing dispatch burns
-  // infrastructure; an idle tick is merely uninformative). One success resets it.
-  const cf = consecutiveFailureByTemplate.get(templateId) ?? 0;
-  if (cf >= 2) {
-    finalScore *= Math.pow(0.5, Math.min(cf, 10));
-    reason += ` fail×${cf}`;
-  }
-  return { score: finalScore, reason };
+  // The formula lives in selection-traps.ts (pure, pinned by test/ratchet/selection-traps.test.ts):
+  //   cold (picks=0): exploration bonus / (1 + cold crowd) × failure debit;
+  //   sampled: (mean + UCB explore) × cost adjustment × shape + pipeline pull, × priority, × idle debit, × failure debit;
+  // plus the two trap rules: an idle template's cost multiplier decays toward neutral, and a failure streak decays per quiet cold window.
+  const expCost = picks > 0 ? expectedCostMs(templateId) : 0;
+  const expTok = picks > 0 ? expectedCostTokens(templateId) : 0;
+  return scoreTemplate({
+    rewards: picks > 0 ? m!.outcomes.map((o) => o.reward) : [],
+    totalPicks: totalPicksV24f,
+    explorationBoost,
+    costAdj: picks > 0 ? combinedCostAdj(templateId) : 1, // V31: combined over the cost vector {ms, tokens}
+    shapeAvail,
+    priorityWeight,
+    consecutiveIdle: consecutiveIdleByTemplate.get(templateId) ?? 0,
+    consecutiveFailures: consecutiveFailureByTemplate.get(templateId) ?? 0,
+    lastFailureAt: lastFailureAtByTemplate.get(templateId),
+    coldCrowd: picks === 0 ? coldPickTimestamps.filter((t) => now - t <= 60_000).length : 0,
+    idleReward: IDLE_REWARD,
+    now,
+    costNote: `${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}`,
+  }, policy);
 }
 
 async function pickByShapeAvailability(
@@ -3507,6 +3496,7 @@ async function pickByShapeAvailability(
 
   const coldPool = eligible.filter((c) => (momentumByTemplate.get(c.template_id)?.outcomes.length ?? 0) === 0);
   let best: ShapeDrivenPick | null = null;
+  let bestOff: { template_id: string; score: number } | null = null;
   // V24f (2026-06-08): score each eligible template via UCB1 + shape-availability.
   // Unsampled templates are picked first (UCB bonus is +∞ for n=0). Once sampled,
   // exploration bonus decays naturally; pipeline-pull factor still rewards
@@ -3537,6 +3527,12 @@ async function pickByShapeAvailability(
         reason: `${ucb.reason} inputs=${inputMatchSummary}`,
       };
     }
+    // The same pick with the trap rules off: when they differ, the rules changed this pick — said, so it is visible.
+    const off = ucbScoreImpl(c.template_id, shapeAvail, priorityWeight, coldPool.length, SELECTION_TRAPS_OFF);
+    if (!bestOff || off.score > bestOff.score) bestOff = { template_id: c.template_id, score: off.score };
+  }
+  if (best && bestOff && best.template_id !== bestOff.template_id) {
+    console.log(`[pool/selection-traps] pick changed: ${best.template_id} (${best.reason}) instead of ${bestOff.template_id} — idle cost decay / cold-window recovery`);
   }
   return best;
 }

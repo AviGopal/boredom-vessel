@@ -25,3 +25,17 @@ lists in it are informational and may go stale), so a stale reason can never fai
 
 `env-read-scanner.ts` is the dependency-free scanner; its header lists the forms it recognises and the
 residual forms it does not.
+
+## Selection-traps ratchet
+
+`selection-traps.test.ts` pins two selector traps by class (any template ids, any costs):
+- **Cheap idle monopoly:** while a template's recent outcomes are idle, its cost multiplier decays toward neutral, so
+  exploration, not cheapness, shares picks among templates that yield nothing new.
+- **Cold failure recovery:** a failure streak decays per quiet cold window, so a template that once failed is not
+  unpickable forever.
+
+It also pins the controls: a higher mean still wins, a template failing while picked keeps its penalty, and productive
+records keep today's value-per-cost ranking.
+
+The selector's scoring lives in `src/selection-traps.ts`, which stays open to the lane; this test is what keeps both
+traps closed. The rates and the window are shaped (`boredomSelectionPolicy`), never constants or env.
