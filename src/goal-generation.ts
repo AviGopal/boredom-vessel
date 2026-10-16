@@ -1,3 +1,6 @@
+
+/** Structured run-goal fields a gap goal carries (CHANGE-35): its target shapes and bound variables. */
+export interface GapGoalRunFields { expected_output_shapes: string[]; variables: Record<string, string> }
 /**
  * sanitizeGoalText — strip recursive gap/decompose prefix nesting and cap length.
  *
@@ -134,7 +137,7 @@ export function dropOperatorOwnedGaps<T extends { source?: unknown; directed?: u
 export async function generateGapGoalCandidates(
   activityApiEndpoint: string,
   apiKey: string,
-): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string } }>> {
+): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string }; runGoal?: GapGoalRunFields }>> {
   try {
     const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
     const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
@@ -187,7 +190,7 @@ export async function generateGapGoalCandidates(
     }
     const seen = new Set<string>();
     const gapSignatures = new Set<string>();
-    const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string; } }> = [];
+    const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string; }; runGoal?: GapGoalRunFields }> = [];
     for (const g of gaps) {
       const sig = `${g.gap_subtype ?? ""}:${g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary}`.toLowerCase().replace(/\s+/g, " ");
       if (gapSignatures.has(sig)) continue;
@@ -364,6 +367,9 @@ export async function generateGapGoalCandidates(
         source: "gap_generated",
         gapId: g.id,
         classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
+        // CHANGE-35: an investigation of a gap with no edit site asks for its DECOMPOSITION, structured: the target shape
+        // and the gap id go on the run-goal body, so goal-host binds them instead of recovering them from the text.
+        ...(gSite ? {} : { runGoal: { expected_output_shapes: ["gapDecomposition"], variables: { decompose_gap_id: String(g.id) } } }),
       });
       if (out.length >= 5) break;
     }

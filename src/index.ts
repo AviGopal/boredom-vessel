@@ -2746,6 +2746,8 @@ interface ShapeDrivenCandidate {
   output_shapes: string[];
   tags: string[];
   goal_text?: string;
+  /** Structured run-goal fields for a gap goal (CHANGE-35): target shapes + bound variables, sent with the goal. */
+  run_goal?: { expected_output_shapes: string[]; variables: Record<string, string> };
 }
 
 interface ShapeDrivenPick {
@@ -2807,7 +2809,7 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
     }
     try {
     const gapGoals = await generateGapGoalCandidates(ACTIVITY_API_ENDPOINT, API_KEY);
-    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText });
+    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText, ...(g.runGoal ? { run_goal: g.runGoal } : {}) });
   } catch {
     /* fail open */
   }
@@ -3604,7 +3606,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
         const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
-          body: JSON.stringify({ goal: cand.goal_text, tags: ["boredom_autonomous", "gap_generated"] }),
+          body: JSON.stringify({ goal: cand.goal_text, tags: ["boredom_autonomous", "gap_generated"], ...(cand.run_goal ? { expected_output_shapes: cand.run_goal.expected_output_shapes, variables: cand.run_goal.variables } : {}) }),
           signal: AbortSignal.timeout(30_000),
         });
         recordCostByTemplate(templateId, Date.now() - costT0, 0);
