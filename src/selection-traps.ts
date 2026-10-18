@@ -136,3 +136,45 @@ export function scoreTemplate(i: ScoreInput, policy: SelectionTrapPolicy): { sco
   if (coldRecovered) reason += ` cold-recovered ${i.consecutiveFailures}→${cf}`;
   return { score, reason, idle_cost_decayed: idleCostDecayed, cold_recovered: coldRecovered };
 }
+
+// EXTERNAL-TRAFFIC GATE POLICY — three more fields of the same boredomSelectionPolicy row, kept in their own object so
+// the trap policy above (and its protected contract) is untouched. The pool defers dispatching while non-boredom traces
+// are active (see external-gate.ts). external_defer_max_ms = 0 is OFF, and it is the default: an absent row, or an
+// invalid gate field, leaves the pool exactly as it was.
+export interface ExternalGatePolicy {
+  /** How far back a non-boredom trace counts as active external work. */
+  external_window_ms: number;
+  /** External traces in the window at or above which the pool defers. */
+  external_min_traces: number;
+  /** The longest one continuous defer may last before the pool dispatches anyway (0 = gate off). */
+  external_defer_max_ms: number;
+}
+
+export const DEFAULT_EXTERNAL_GATE_POLICY: ExternalGatePolicy = Object.freeze({
+  external_window_ms: 5 * 60 * 1000,
+  external_min_traces: 1,
+  external_defer_max_ms: 0,
+});
+
+/** The gate switched off (the default is off too; this names it for callers and tests). */
+export const EXTERNAL_GATE_OFF: ExternalGatePolicy = Object.freeze({ ...DEFAULT_EXTERNAL_GATE_POLICY, external_defer_max_ms: 0 });
+
+/** Parse the gate fields of a boredomSelectionPolicy body. Absent → defaults (off, ok). Any invalid gate field → ok:false, defaults (off). */
+export function parseExternalGatePolicy(body: unknown): { ok: boolean; policy: ExternalGatePolicy; why?: string } {
+  const policy: ExternalGatePolicy = { ...DEFAULT_EXTERNAL_GATE_POLICY };
+  if (body === null || body === undefined) return { ok: true, policy };
+  if (typeof body !== "object" || Array.isArray(body)) return { ok: false, policy, why: "policy body is not an object" };
+  const b = body as Record<string, unknown>;
+  const errs: string[] = [];
+  const num = (k: keyof ExternalGatePolicy, lo: number, hi: number, int: boolean): void => {
+    if (b[k] === undefined) return;
+    const v = b[k];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < lo || v > hi || (int && !Number.isInteger(v))) errs.push(`${k} must be ${int ? "an integer" : "a number"} in [${lo}, ${hi}]`);
+    else policy[k] = v;
+  };
+  num("external_window_ms", 10_000, 3_600_000, false);
+  num("external_min_traces", 1, 10_000, true);
+  num("external_defer_max_ms", 0, 6 * 3_600_000, false);
+  if (errs.length) return { ok: false, policy: { ...DEFAULT_EXTERNAL_GATE_POLICY }, why: errs.join("; ") };
+  return { ok: true, policy };
+}

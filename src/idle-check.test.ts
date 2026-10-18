@@ -67,6 +67,6 @@ describe("isIdle reads the trace list's executions", () => {
     expect(start).toBeGreaterThan(-1);
     const body = src.slice(start, src.indexOf("\n}\n", start));
     expect(body).toContain("return checkIdle(ACTIVITY_API_ENDPOINT, authHeaders(), IDLE_WINDOW_SECONDS);");
-    expect(src).toContain('import { BOREDOM_TAG, isIdle as checkIdle } from "./idle-check";');
+    expect(src).toMatch(/import \{[^}]*\bBOREDOM_TAG\b[^}]*\bisIdle as checkIdle\b[^}]*\} from "\.\/idle-check";/);
   });
 });

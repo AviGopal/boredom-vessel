@@ -27,10 +27,11 @@
 import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditionScaffoldDispatch";
 import { generateGapGoalCandidates } from "./goal-generation";
 import { settleGapGoalPost, settleOneShotDispatch } from "./dispatch-refusal";
-import { BOREDOM_TAG, isIdle as checkIdle } from "./idle-check";
+import { BOREDOM_TAG, externalTracesSince, isIdle as checkIdle } from "./idle-check";
+import { INITIAL_EXTERNAL_GATE_STATE, deferForExternal, externalGateOn, type ExternalGateState } from "./external-gate";
 import { readTraceWindow } from "./trace-window";
 import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
-import { DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseSelectionTrapPolicy, scoreTemplate, type SelectionTrapPolicy } from "./selection-traps";
+import { DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseExternalGatePolicy, parseSelectionTrapPolicy, scoreTemplate, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
 
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
 const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
@@ -2408,6 +2409,10 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
       selectionTrapPolicy = parsed.policy;
       if (!parsed.ok && parsed.why !== selectionTrapPolicyWhy) console.warn(`[pool/selection-traps] boredomSelectionPolicy invalid, defaults used: ${parsed.why}`);
       selectionTrapPolicyWhy = parsed.ok ? "" : (parsed.why ?? "");
+      const gate = parseExternalGatePolicy(spData?.body?.impulses?.[0]?.body ?? null);
+      externalGatePolicy = gate.policy;
+      if (!gate.ok && gate.why !== externalGatePolicyWhy) console.warn(`[pool/external-gate] boredomSelectionPolicy gate fields invalid, gate off: ${gate.why}`);
+      externalGatePolicyWhy = gate.ok ? "" : (gate.why ?? "");
     }
   } catch { /* unreachable — keep the last policy */ }
   // Seam 2b: read the selectionEntropy producer's collapsed flag. When the
@@ -2838,6 +2843,10 @@ const lastFailureAtByTemplate = new Map<string, number>();
 // The shaped selection-trap policy (boredomSelectionPolicy), refreshed with the substrate state; defaults until read.
 let selectionTrapPolicy: SelectionTrapPolicy = { ...DEFAULT_SELECTION_TRAP_POLICY };
 let selectionTrapPolicyWhy = "";
+// The external-traffic gate fields of the same row (external-gate.ts); off until a row turns them on.
+let externalGatePolicy: ExternalGatePolicy = { ...DEFAULT_EXTERNAL_GATE_POLICY };
+let externalGatePolicyWhy = "";
+let externalGateState: ExternalGateState = { ...INITIAL_EXTERNAL_GATE_STATE };
 // Reward a clean-but-empty tick earns. Non-zero so health/observer detectors
 // stay periodically sampleable via the UCB explore bonus, but well below a
 // productive tick (1.0) so finding-producing detectors win more budget.
@@ -3550,7 +3559,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
         const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
-          body: JSON.stringify({ goal: cand.goal_text, tags: ["boredom_autonomous", "gap_generated"], ...(cand.run_goal ? { expected_output_shapes: cand.run_goal.expected_output_shapes, variables: cand.run_goal.variables } : {}) }),
+          body: JSON.stringify({ goal: cand.goal_text, tags: ["boredom_autonomous", "gap_generated", BOREDOM_TAG], ...(cand.run_goal ? { expected_output_shapes: cand.run_goal.expected_output_shapes, variables: cand.run_goal.variables } : {}) }),
           signal: AbortSignal.timeout(30_000),
         });
         recordCostByTemplate(templateId, Date.now() - costT0, 0);
@@ -3645,7 +3654,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
     const res = await fetch(`${LIGHT_DISPATCH_ENDPOINT}/dispatch`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
-      body: JSON.stringify({ template_id: templateId, variables: {} }),
+      body: JSON.stringify({ template_id: templateId, variables: {}, tags: [BOREDOM_TAG] }),
       signal: AbortSignal.timeout(180_000),
     });
     if (!res.ok && res.status !== 207) {
@@ -4154,6 +4163,7 @@ async function poolLoop(): Promise<void> {
   lastSigRefreshAt = Date.now();
   let lastStateRefresh = Date.now();
   let lastEnvelopeLogAt = 0;
+  let lastExternalGateLogAt = 0;
   while (running) {
     // SPEND ENVELOPE (4.3c): paused, exhausted or unreadable means this tick dispatches nothing.
     const envelope = await boredomEnvelopeAllows();
@@ -4179,6 +4189,27 @@ async function poolLoop(): Promise<void> {
     if (Date.now() - lastAutoPromoteAt > POOL_AUTOPROMOTE_INTERVAL_MS) {
       await tickAutoPromote();
       lastAutoPromoteAt = Date.now();
+    }
+    // EXTERNAL-TRAFFIC GATE (external-gate.ts): while non-boredom work is active, this tick
+    // dispatches nothing; one continuous defer is bounded by external_defer_max_ms. Off (the
+    // default) reads nothing and changes nothing. After the state refresh, so a policy change
+    // is read even while deferring; before the exerciser and the fill loop, which dispatch.
+    if (externalGateOn(externalGatePolicy)) {
+      const reading = await externalTracesSince(ACTIVITY_API_ENDPOINT, authHeaders(), Date.now() - externalGatePolicy.external_window_ms, externalGatePolicy.external_min_traces);
+      const gate = deferForExternal(externalGatePolicy, reading, externalGateState, Date.now());
+      externalGateState = gate.state;
+      if (gate.reason === "defer_max_reached") {
+        console.log(`[pool/external-gate] defer bound reached after ${externalGatePolicy.external_defer_max_ms}ms — dispatching (releases: ${gate.state.boundReleases})`);
+      }
+      if (gate.defer) {
+        if (Date.now() - lastExternalGateLogAt > 300_000) {
+          const seen = reading.ok ? `${reading.external} external trace(s)` : `count unknown (${reading.why})`;
+          console.log(`[pool/external-gate] not dispatching: ${seen} in the last ${externalGatePolicy.external_window_ms}ms (deferred ticks: ${gate.state.deferredTicks})`);
+          lastExternalGateLogAt = Date.now();
+        }
+        await new Promise((r) => setTimeout(r, POOL_LOOP_INTERVAL_MS));
+        continue;
+      }
     }
     // Exercise authored proposals on a faster cadence than auto-promote so the
     // backlog accrues execution evidence and the author→execute→promote loop

@@ -72,3 +72,42 @@ export async function isIdle(endpoint: string, headers: Record<string, string>, 
 
   return true;
 }
+
+/** Pages of 100 the external-traffic count reads at most per call (a load bound on the hot list route). */
+export const EXTERNAL_SCAN_PAGE_CAP = 10;
+const EXTERNAL_SCAN_PAGE = 100;
+
+export type ExternalReading = { ok: true; external: number } | { ok: false; why: string };
+
+/**
+ * Count non-boredom traces since `sinceMs`, paging the list route by `offset` (100 per page, newest first) until a short
+ * page, until `enough` external traces are seen, or until EXTERNAL_SCAN_PAGE_CAP pages. Anything that leaves the count
+ * unknown — a fetch error, a non-OK status, a body with no rows array, or the page cap reached before `enough` — is
+ * `ok:false`, which the gate reads as busy (conservative), never as quiet.
+ */
+export async function externalTracesSince(
+  endpoint: string,
+  headers: Record<string, string>,
+  sinceMs: number,
+  enough: number,
+): Promise<ExternalReading> {
+  let external = 0;
+  for (let page = 0; page < EXTERNAL_SCAN_PAGE_CAP; page++) {
+    let body: unknown;
+    try {
+      const res = await fetch(
+        `${endpoint}/v2/activities/execution-traces?limit=${EXTERNAL_SCAN_PAGE}&since=${sinceMs}&offset=${page * EXTERNAL_SCAN_PAGE}`,
+        { headers, signal: AbortSignal.timeout(8_000) },
+      );
+      if (!res.ok) return { ok: false, why: `HTTP ${res.status}` };
+      body = await res.json();
+    } catch (err) {
+      return { ok: false, why: (err as Error).message };
+    }
+    const rows = traceListRows(body);
+    if (rows === null) return { ok: false, why: "body has no executions array" };
+    external += rows.filter((t) => !(t?.tags ?? []).includes(BOREDOM_TAG)).length;
+    if (external >= enough || rows.length < EXTERNAL_SCAN_PAGE) return { ok: true, external };
+  }
+  return { ok: false, why: `scan capped at ${EXTERNAL_SCAN_PAGE_CAP} pages with ${external} external` };
+}
