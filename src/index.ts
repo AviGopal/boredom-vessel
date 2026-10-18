@@ -27,6 +27,7 @@
 import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditionScaffoldDispatch";
 import { generateGapGoalCandidates } from "./goal-generation";
 import { settleGapGoalPost, settleOneShotDispatch } from "./dispatch-refusal";
+import { BOREDOM_TAG, isIdle as checkIdle } from "./idle-check";
 import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
 import { DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseSelectionTrapPolicy, scoreTemplate, type SelectionTrapPolicy } from "./selection-traps";
 
@@ -1060,8 +1061,6 @@ async function pickTopProposedGapClosingTemplate(): Promise<string | null> {
   }
 }
 
-const BOREDOM_TAG = "intent:boredom_source";
-
 function authHeaders(): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -1071,47 +1070,11 @@ function authHeaders(): Record<string, string> {
 
 /**
  * Check whether the substrate has had recent external (non-boredom) activity.
- * Returns true if the substrate is idle (no recent external traces).
+ * Returns true if the substrate is idle (no recent external traces). The read and its
+ * body-shape rule live in idle-check.ts.
  */
 async function isIdle(): Promise<boolean> {
-  const since = Date.now() - IDLE_WINDOW_SECONDS * 1000;
-
-  let res: Response;
-  try {
-    res = await fetch(
-      `${ACTIVITY_API_ENDPOINT}/v2/activities/execution-traces?limit=20&since=${since}`,
-      { headers: authHeaders() },
-    );
-  } catch (err) {
-    // If activity-api is unreachable, assume idle (fail-open for coverage).
-    console.warn(`[boredom-vessel] activity-api unreachable, assuming idle: ${(err as Error).message}`);
-    return true;
-  }
-
-  if (!res.ok) {
-    console.warn(`[boredom-vessel] execution-traces query HTTP ${res.status}, assuming idle`);
-    return true;
-  }
-
-  let traces: Array<{ tags?: string[] }> = [];
-  try {
-    const body = await res.json() as { traces?: typeof traces } | typeof traces;
-    traces = Array.isArray(body) ? body : ((body as { traces?: typeof traces }).traces ?? []);
-  } catch {
-    return true;
-  }
-
-  // Filter out traces that were themselves boredom-initiated (tagged BOREDOM_TAG).
-  const externalTraces = traces.filter((t) => !(t.tags ?? []).includes(BOREDOM_TAG));
-
-  if (externalTraces.length > 0) {
-    console.log(
-      `[boredom-vessel] ${externalTraces.length} external traces in last ${IDLE_WINDOW_SECONDS}s — skipping`,
-    );
-    return false;
-  }
-
-  return true;
+  return checkIdle(ACTIVITY_API_ENDPOINT, authHeaders(), IDLE_WINDOW_SECONDS);
 }
 
 /** Read the persisted goal index without advancing — gating may move it. */
