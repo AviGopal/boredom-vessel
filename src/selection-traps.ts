@@ -16,6 +16,8 @@
 // Both rates and the window are shaped (boredomSelectionPolicy), read at use time with defaults; nothing here names a
 // template. The protected test (test/ratchet/selection-traps.test.ts) pins the contract by class.
 
+import { EXTERNAL_SCAN_ROW_REACH } from "./idle-check";
+
 export interface SelectionTrapPolicy {
   /** Per consecutive idle outcome, the fraction of the cost multiplier's distance from neutral (costAdj - 1) that is kept. */
   idle_cost_decay: number;
@@ -173,7 +175,9 @@ export function parseExternalGatePolicy(body: unknown): { ok: boolean; policy: E
     else policy[k] = v;
   };
   num("external_window_ms", 10_000, 3_600_000, false);
-  num("external_min_traces", 1, 10_000, true);
+  // Bounded by what one count can see (externalTracesSince's page cap): a higher threshold would make every reading
+  // unknown (busy), so the gate would defer to its bound on every tick and mean nothing.
+  num("external_min_traces", 1, EXTERNAL_SCAN_ROW_REACH, true);
   num("external_defer_max_ms", 0, 6 * 3_600_000, false);
   if (errs.length) return { ok: false, policy: { ...DEFAULT_EXTERNAL_GATE_POLICY }, why: errs.join("; ") };
   return { ok: true, policy };

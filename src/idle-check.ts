@@ -76,6 +76,8 @@ export async function isIdle(endpoint: string, headers: Record<string, string>, 
 /** Pages of 100 the external-traffic count reads at most per call (a load bound on the hot list route). */
 export const EXTERNAL_SCAN_PAGE_CAP = 10;
 const EXTERNAL_SCAN_PAGE = 100;
+/** The most external traces one count can see before the cap: a threshold above this could only ever read as unknown. */
+export const EXTERNAL_SCAN_ROW_REACH = EXTERNAL_SCAN_PAGE_CAP * EXTERNAL_SCAN_PAGE;
 
 export type ExternalReading = { ok: true; external: number } | { ok: false; why: string };
 
