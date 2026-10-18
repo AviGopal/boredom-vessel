@@ -28,6 +28,7 @@ import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditio
 import { generateGapGoalCandidates } from "./goal-generation";
 import { settleGapGoalPost, settleOneShotDispatch } from "./dispatch-refusal";
 import { BOREDOM_TAG, isIdle as checkIdle } from "./idle-check";
+import { readTraceWindow } from "./trace-window";
 import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
 import { DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseSelectionTrapPolicy, scoreTemplate, type SelectionTrapPolicy } from "./selection-traps";
 
@@ -1206,7 +1207,8 @@ async function fetchCurrentSignature(): Promise<string | null> {
  * map goalIdx → { alpha, beta, samples } for the current signature only. Falls
  * back to empty map on any error so the caller degrades to round-robin.
  *
- * We read traces from the last 24h (limit 200). Each trace has tags including
+ * We read one page (100 rows) of the last 24h; a full page is truncated and yields an
+ * empty map (see trace-window.ts). Each trace has tags including
  * `state_signature:<hash>` (added by goal-host) and `boredom_source` + an
  * implicit goal_idx via the targetTemplateId. We map template_id back to
  * goal_idx via AUTONOMOUS_GOAL_TARGET_TEMPLATES.
@@ -1218,26 +1220,14 @@ async function fetchPosteriorsForSignature(
   const cells = new Map<number, PosteriorCell>();
   try {
     const since = Date.now() - 24 * 60 * 60 * 1000;
-    // Bump limit 200 → 500: lifecycle-spawned nested traces now inherit
-    // state_signature: tags (ias-executor 95636c3) but have null template_id;
-    // the goal-idx lookup already skips them via `if (!tid) continue`. We
-    // bump the fetch limit modestly so root traces aren't crowded out of the
-    // sample window. 1000 caused activity-api timeouts under load; 500 is
-    // safer on memory + DB I/O while still ~2.5x the prior headroom.
-    const res = await fetch(
-      `${ACTIVITY_API_ENDPOINT}/v2/activities/execution-traces?limit=500&since=${since}`,
-      { headers: authHeaders(), signal: AbortSignal.timeout(8_000) },
-    );
-    if (!res.ok) return cells;
-    const data = (await res.json()) as
-      | { executions?: unknown; traces?: unknown }
-      | unknown;
-    const arr = Array.isArray(data)
-      ? (data as Array<Record<string, unknown>>)
-      : ((data as { executions?: unknown; traces?: unknown })?.executions
-        ?? (data as { executions?: unknown; traces?: unknown })?.traces
-        ?? []) as Array<Record<string, unknown>>;
-    if (!Array.isArray(arr)) return cells;
+    // The route clamps a page to 100 rows (the old 500-row ask was never served), so a full
+    // page is the newest slice of the window, not the window: readTraceWindow logs it and
+    // returns null. An empty map means one-shot goal selection is round-robin and the pool's
+    // signature-continuity boost is off. Lifecycle-spawned nested traces
+    // inherit state_signature: tags (ias-executor 95636c3) but have null template_id; the
+    // goal-idx lookup skips them via `if (!tid) continue`.
+    const arr = await readTraceWindow(ACTIVITY_API_ENDPOINT, authHeaders(), since, "fetchPosteriorsForSignature");
+    if (!arr) return cells;
     const sigTag = `state_signature:${signature}`;
     // Build template_id → goal_idx index once.
     const tplToGoal = new Map<string, number>();
@@ -1595,19 +1585,10 @@ async function fetchDispatcherPosteriors(
   const cells = new Map<DispatcherChoice, PosteriorCell>();
   try {
     const since = Date.now() - 24 * 60 * 60 * 1000;
-    // See fetchPosteriorsForSignature comment — same dilution issue.
-    const res = await fetch(
-      `${ACTIVITY_API_ENDPOINT}/v2/activities/execution-traces?limit=500&since=${since}`,
-      { headers: authHeaders(), signal: AbortSignal.timeout(8_000) },
-    );
-    if (!res.ok) return cells;
-    const data = (await res.json()) as { executions?: unknown; traces?: unknown } | unknown;
-    const arr = (Array.isArray(data)
-      ? (data as Array<Record<string, unknown>>)
-      : ((data as { executions?: unknown; traces?: unknown })?.executions
-        ?? (data as { executions?: unknown; traces?: unknown })?.traces
-        ?? [])) as Array<Record<string, unknown>>;
-    if (!Array.isArray(arr)) return cells;
+    // See fetchPosteriorsForSignature comment — a truncated window weighs nothing, and an
+    // empty map makes the Thompson draw below a uniform Beta(1,1) random choice.
+    const arr = await readTraceWindow(ACTIVITY_API_ENDPOINT, authHeaders(), since, "fetchDispatcherPosteriors");
+    if (!arr) return cells;
     const sigTag = `state_signature:${signature}`;
     const targetTpl = AUTONOMOUS_GOAL_TARGET_TEMPLATES[goalIdx];
     for (const t of arr) {
