@@ -167,21 +167,35 @@ export function admitActionableGapsMirror<T extends { id: string; category?: str
 //   excluded_site   — edit_site is marked "(excluded: operator)": outside the autonomy scope
 //   class2_armed    — falsifier class2 with an evidence_resolve: the compose lane's
 //                     (gap_to_feature) to close against its measured check, not a walk's
+//   pending_verification — a landing awaits its verdict (isAwaitingLandVerification below):
+//                     re-walking it re-lands a change the landing sweep is still judging
 // NOT checked here: edit_site paths inside the autonomy scope's excluded list — this supply
 // does not read the autonomy scope, so only the explicit "(excluded: operator)" marker is seen.
-export type OwnershipDropReason = "directed" | "operator_hold" | "human_reported" | "operator_supply" | "excluded_site" | "class2_armed";
-export function operatorOwnedReason(g: { source?: unknown; directed?: unknown; classification_metadata?: Record<string, unknown> }): OwnershipDropReason | null {
+export type OwnershipDropReason = "directed" | "operator_hold" | "pending_verification" | "human_reported" | "operator_supply" | "excluded_site" | "class2_armed";
+type OwnedGap = { source?: unknown; directed?: unknown; summary?: unknown; classification_metadata?: Record<string, unknown>; metadata?: Record<string, unknown> };
+/** MIRROR of development-vessel's isAwaitingLandVerification (src/judge/gap-eligibility.ts:146), the predicate its
+ *  compose eligibility and admission skip on: disposition pending_verification with nothing yet saying the landing
+ *  failed (regressed_by, or a BEHAVIORAL VERIFICATION FAILED summary, makes the gap work again). Keep it identical. */
+export function isAwaitingLandVerification(gap: OwnedGap): boolean {
+  const meta = (gap.classification_metadata ?? gap.metadata ?? {}) as Record<string, unknown>;
+  if (meta.disposition !== "pending_verification") return false;
+  if (meta.regressed_by !== undefined && meta.regressed_by !== null) return false;
+  if (String(gap.summary ?? "").includes("BEHAVIORAL VERIFICATION FAILED")) return false;
+  return true;
+}
+export function operatorOwnedReason(g: OwnedGap): OwnershipDropReason | null {
   const meta = (g.classification_metadata ?? {}) as Record<string, unknown>;
   if (g.directed === true || meta.directed === true) return "directed";
   if (meta.operator_hold === true) return "operator_hold";
+  if (isAwaitingLandVerification(g)) return "pending_verification";
   if (g.source === "human_reported") return "human_reported";
   if (/^operator/i.test(String(meta.supply ?? ""))) return "operator_supply";
   if (String(meta.edit_site ?? "").includes("(excluded: operator)")) return "excluded_site";
   if (meta.falsifier === "class2" && meta.evidence_resolve != null) return "class2_armed";
   return null;
 }
-export function dropOperatorOwnedGaps<T extends { source?: unknown; directed?: unknown; classification_metadata?: Record<string, unknown> }>(gaps: T[]): { kept: T[]; dropped: Record<OwnershipDropReason, number> } {
-  const dropped: Record<OwnershipDropReason, number> = { directed: 0, operator_hold: 0, human_reported: 0, operator_supply: 0, excluded_site: 0, class2_armed: 0 };
+export function dropOperatorOwnedGaps<T extends OwnedGap>(gaps: T[]): { kept: T[]; dropped: Record<OwnershipDropReason, number> } {
+  const dropped: Record<OwnershipDropReason, number> = { directed: 0, operator_hold: 0, pending_verification: 0, human_reported: 0, operator_supply: 0, excluded_site: 0, class2_armed: 0 };
   const kept = gaps.filter((g) => {
     const reason = operatorOwnedReason(g);
     if (reason) dropped[reason]++;
