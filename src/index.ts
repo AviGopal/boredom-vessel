@@ -1743,7 +1743,9 @@ async function dispatchGoal(
     tags,
     variables: { source: "boredom-vessel", ...variables },
   };
-  if (targetTemplateId) requestBody.targetTemplateId = targetTemplateId;
+  // A pinned template is where attempt 1 STARTS, not the only arm allowed: `reroute_on_miss` lets goal-host's
+  // recovery loop pick a different arm when attempt 1 does not reach, instead of the next tick repeating the same pick.
+  if (targetTemplateId) { requestBody.targetTemplateId = targetTemplateId; requestBody.reroute_on_miss = true; }
   if (stateSignatureHash) requestBody.state_signature_hash = stateSignatureHash;
   return await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
     method: "POST",
