@@ -18,7 +18,11 @@ const PAGE_CAP = 100;
 
 const realFetch = globalThis.fetch;
 const realError = console.error;
-afterEach(() => { globalThis.fetch = realFetch; console.error = realError; });
+afterEach(() => {
+  globalThis.fetch = realFetch; console.error = realError;
+  // A complete multi-page read is shared for a while (trace-window-share.test.ts); each case here reads its own window.
+  (tw as { resetTraceWindowShare?: () => void }).resetTraceWindowShare?.();
+});
 
 const SIG = "state_signature:s1";
 const SINCE = Date.parse("2030-05-01T00:00:00Z");
