@@ -32,6 +32,7 @@ import { INITIAL_EXTERNAL_GATE_STATE, deferForExternal, externalGateOn, type Ext
 import { readTraceWindow } from "./trace-window";
 import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
 import { DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseExternalGatePolicy, parseSelectionTrapPolicy, scoreTemplate, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
+import { candidateMode, type LearningModeName } from "./candidate-mode";
 
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
 const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
@@ -2144,29 +2145,11 @@ let explorationBoost = 1.0;
 // promotion uses (max wins), and apply the emphasized mode's weight to candidates
 // classified into that mode via MODE_BY_GOAL. When learningMode is absent every
 // weight defaults to 1.0 → selection is byte-for-byte the pre-P3 behavior.
-type LearningModeName = "develop" | "collect" | "reflect";
 let learningModeEmphasis: LearningModeName | null = null;
 let modeWeightByMode = new Map<LearningModeName, number>();
 
-// MODE_BY_GOAL: classify a candidate into a work-mode from its template id / tags,
-// reusing the goal-text category families:
-//   authoring / compose  → develop
-//   probe / scan / observe → collect
-//   audit / health / reconcile → reflect
-// Returns null when the candidate matches no family (→ no mode weight applied).
-const MODE_DEVELOP_MARKERS = ["author", "compose", "draft", "mint", "create", "feature", "variant", "bridge", "scaffold"];
-const MODE_COLLECT_MARKERS = ["probe", "scan", "observe", "measure", "coverage", "snapshot", "discover", "explore", "sample"];
-const MODE_REFLECT_MARKERS = ["audit", "health", "reconcile", "report", "completeness", "consistency", "reflect", "reach-gate", "review"];
-
-function candidateMode(templateId: string, tags: string[]): LearningModeName | null {
-  const hay = `${templateId} ${tags.join(" ")}`.toLowerCase();
-  const has = (markers: string[]) => markers.some((m) => hay.includes(m));
-  // reflect is the most specific family; check it first, then develop, then collect.
-  if (has(MODE_REFLECT_MARKERS)) return "reflect";
-  if (has(MODE_DEVELOP_MARKERS)) return "develop";
-  if (has(MODE_COLLECT_MARKERS)) return "collect";
-  return null;
-}
+// MODE_BY_GOAL: classify a candidate into a work-mode from its DECLARED output shapes and tags (src/candidate-mode.ts;
+// the id is read only when it declares neither). Returns null when the candidate matches no family (no mode weight).
 
 // Tag / id markers identifying a candidate as a gap-draining or repair tick.
 // These are the producers that CLOSE urgent backlog (their own output_shapes
@@ -2254,7 +2237,7 @@ function priorityWeightForCandidate(
   // weight (max wins, so it composes with gap-demand / drain promotion without
   // flattening them). learningModeEmphasis === null (producer absent) → no-op.
   if (learningModeEmphasis) {
-    const mode = candidateMode(templateId, tags);
+    const mode = candidateMode(templateId, outputShapes, tags);
     if (mode === learningModeEmphasis) {
       const mw = modeWeightByMode.get(mode) ?? 1.0;
       if (mw > w) w = mw;
