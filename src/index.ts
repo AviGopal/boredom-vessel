@@ -1209,8 +1209,8 @@ async function fetchCurrentSignature(): Promise<string | null> {
  * map goalIdx → { alpha, beta, samples } for the current signature only. Falls
  * back to empty map on any error so the caller degrades to round-robin.
  *
- * We read one page (100 rows) of the last 24h; a full page is truncated and yields an
- * empty map (see trace-window.ts). Each trace has tags including
+ * We read the whole last 24h, paged by offset; a window that cannot be read whole (page
+ * cap, unpaged route, a failed page) yields an empty map (see trace-window.ts). Each trace has tags including
  * `state_signature:<hash>` (added by goal-host) and `boredom_source` + an
  * implicit goal_idx via the targetTemplateId. We map template_id back to
  * goal_idx via AUTONOMOUS_GOAL_TARGET_TEMPLATES.
@@ -1222,8 +1222,8 @@ async function fetchPosteriorsForSignature(
   const cells = new Map<number, PosteriorCell>();
   try {
     const since = Date.now() - 24 * 60 * 60 * 1000;
-    // The route clamps a page to 100 rows (the old 500-row ask was never served), so a full
-    // page is the newest slice of the window, not the window: readTraceWindow logs it and
+    // The route clamps a page to 100 rows (the old 500-row ask was never served), so
+    // readTraceWindow pages the window by offset; a read it cannot complete is logged and
     // returns null. An empty map means one-shot goal selection is round-robin and the pool's
     // signature-continuity boost is off. Lifecycle-spawned nested traces
     // inherit state_signature: tags (ias-executor 95636c3) but have null template_id; the
