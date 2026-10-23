@@ -11,7 +11,7 @@ export interface GapGoalRunFields { expected_output_shapes: string[]; variables:
  *   1. Strips recursive `Close substrate gap <id>:` nesting beyond depth 1
  *   2. Strips recursive `investigate and decompose (gap|goal):` nesting
  *   3. Normalizes `[narrowed from <id>]` to `[narrowed]`
- *   4. Caps at 500 chars (keeping the tail = the meaningful portion)
+ *   4. Caps at 500 chars, cutting from the MIDDLE (see capGoalTextKeepingHead)
  */
 export function sanitizeGoalText(raw: string): string {
   if (!raw || typeof raw !== "string") return raw ?? "";
@@ -47,9 +47,9 @@ export function sanitizeGoalText(raw: string): string {
   // Normalize [narrowed from <id>] annotations to [narrowed]
   text = text.replace(/\[narrowed from [\w:.!-]+\]/g, "[narrowed]");
 
-  // Cap at 500 chars, keeping the tail (meaningful portion).
+  // Cap at 500 chars, keeping the head (the ask and its gap id) and cutting the middle.
   // EXEMPT A WELL-FORMED EDIT GOAL. The cap exists to stop prefix-accreted prose from
-  // growing without bound, and keeping the tail is the right choice for that. But a
+  // growing without bound, and cutting is the right choice for that. But a
   // goal carrying an anchor fence and a replacement fence is structured, not verbose:
   // cutting it anywhere breaks the two-fence pair synthesizeVerbatimEditOps requires,
   // and keeping the TAIL specifically discards the anchor while retaining the
@@ -58,10 +58,66 @@ export function sanitizeGoalText(raw: string): string {
   // does not reopen the accretion this cap was added to bound.
   const hasAnchorAndReplacement = (text.match(/```/g) ?? []).length >= 2;
   if (text.length > 500 && !hasAnchorAndReplacement) {
-    text = "…" + text.slice(text.length - 499);
+    text = capGoalTextKeepingHead(text, 500);
   }
 
   return text.trim();
+}
+
+// The gap-id token the prefix strippers above match (`[\w:.!-]+`), here unanchored.
+const GOAL_ANCHOR_RES: RegExp[] = [
+  /\bgap[:\s]+([\w:.!-]+)/gi,          // a gap id named after the word "gap"
+  /\b(concept_[A-Za-z0-9_-]+)/g,        // a concept id
+  /\b(repos\/[\w.-]+\/src\/[\w./-]+)/g, // an edit site: goal-host's edit-intent routing greps for it
+];
+function goalAnchors(text: string): string[] {
+  const out: string[] = [];
+  for (const re of GOAL_ANCHOR_RES) {
+    for (const m of text.matchAll(re)) {
+      const id = (m[1] ?? "").replace(/[:.!]+$/, "");
+      // "gap failure", "gap in": a bare word is prose, not an id.
+      if (id && /[-_:.\d/]/.test(id) && !out.includes(id)) out.push(id);
+    }
+  }
+  return out;
+}
+
+/**
+ * capGoalTextKeepingHead — fit a goal into `cap` chars by cutting its MIDDLE.
+ *
+ * Keeping the tail cut the head, and the head is the ask ("Close substrate gap <id>: …"):
+ * ~15% of generated goals reached the walk with no ask and no gap id. Priority within the
+ * budget: the leading ask (through its first ": "), then every gap/concept id and edit site
+ * that would otherwise be cut (listed in the marker), then as much tail as still fits.
+ */
+export function capGoalTextKeepingHead(text: string, cap: number): string {
+  if (text.length <= cap) return text;
+  const askEnd = text.search(/:\s/);
+  const minHead = askEnd >= 0 && askEnd < cap / 2 ? askEnd + 1 : 0;
+  let head = Math.max(minHead, Math.floor(cap * 0.55));
+  const sp = text.lastIndexOf(" ", head);
+  if (sp > minHead && head - sp < 40) head = sp;
+  const digits = String(text.length).length;
+  const markerFor = (n: string, ids: string[], more: number) =>
+    ` … [cut ${n} chars${ids.length ? "; ids: " + ids.join(" ") : ""}${more ? ` +${more} ids` : ""}] … `;
+  // A tail starting at `len` chars from the end, moved forward to a word start.
+  const tailStartFor = (len: number) => {
+    const start = text.length - Math.max(0, len);
+    const tsp = text.indexOf(" ", start);
+    return len > 0 && tsp >= 0 && tsp - start < 40 ? tsp + 1 : start;
+  };
+  const tailFor = (ids: string[], more: number) => cap - head - markerFor("9".repeat(digits), ids, more).length;
+  // Ids past the head; list the ones that fit (tail may shrink to nothing for them).
+  const headText = text.slice(0, head);
+  const rest = goalAnchors(text.slice(head)).filter((id) => !headText.includes(id));
+  const kept: string[] = [];
+  for (const id of rest) if (tailFor([...kept, id], rest.length - kept.length - 1) >= 0) kept.push(id);
+  const more = rest.length - kept.length;
+  // An id the tail already carries needs no listing; unlisting only grows the tail, so it stays kept.
+  const inTail = text.slice(tailStartFor(tailFor(kept, more)));
+  const listed = kept.filter((id) => !inTail.includes(id));
+  const tailStart = tailStartFor(tailFor(listed, more));
+  return text.slice(0, head) + markerFor(String(tailStart - head), listed, more) + text.slice(tailStart);
 }
 
 // ── ADMISSION MIRROR — one admission policy (wire D, 2026-07-30) ──────────────────────
