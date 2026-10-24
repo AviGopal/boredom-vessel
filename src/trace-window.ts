@@ -22,8 +22,8 @@
 // the grouping and the rule (a producer that predates them would ignore them and count the whole window, so it is
 // treated as unavailable). Its cells come back as one row per trace they count, carrying the signature tag, the
 // dispatcher tag, the activity_id and the outcome, so the fetchers' loops weigh them unchanged.
-// ONE DELIBERATE DIFFERENCE: the aggregate leaves out observe executions (learning_mode:observe, reach_observe:true),
-// which the list returned: a measurement probe is not evidence about an arm, so it no longer teaches selection.
+// OBSERVE TRACES ARE COUNTED like any run (exclude_observe: false, echoed back): an observe execution still resolves
+// impulses, which make real changes, so it is evidence about the arm, exactly as the list read always counted it.
 // An unavailable aggregate falls back to the one-page list read: a short page is weighed, a full page weighs nothing.
 import { traceListRows } from "./idle-check";
 
@@ -105,8 +105,9 @@ async function aggregateCall(
   try { report = JSON.parse(wire.content) as Record<string, unknown>; } catch { return { why: `${metric} report unparseable` }; }
   if (report.measured !== true) return { why: `${metric} unmeasured: ${String(report.reason ?? "no reason")}` };
   if (report.truncated !== false) return { why: `${metric} truncated` };
-  // A producer that predates the tag filter, the grouping or the rule ignores them and counts the whole window.
-  for (const k of ["tag", "group_by_tag", "success_rule"]) {
+  // A producer that predates the tag filter, the grouping, the observe switch or the rule ignores them and counts a
+  // different window.
+  for (const k of ["tag", "group_by_tag", "exclude_observe", "success_rule"]) {
     if (report[k] !== pointer[k]) return { why: `${metric} report does not serve ${k} (echoed ${JSON.stringify(report[k])})`, noEcho: true };
   }
   if (!Array.isArray(report.rows)) return { why: `${metric} report has no rows array` };
@@ -131,6 +132,7 @@ async function aggregateRead(
   const sigTag = `state_signature:${signature}`;
   const base = {
     type: TRACE_AGGREGATE_SHAPE, group_by: "activity_id", tag: sigTag, group_by_tag: "dispatcher_used",
+    exclude_observe: false, // Observe runs resolve impulses that make real changes: they are counted like any run.
     success_rule: "status_or_flag", // Rounded: the caller's `since` is a few ms older than this call's clock, and a ceil would read 25 h.
     window_hours: Math.max(1, Math.round((Date.now() - sinceMs) / 3_600_000)),
     limit: AGGREGATE_GROUP_LIMIT,

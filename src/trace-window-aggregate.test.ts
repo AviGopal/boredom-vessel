@@ -6,9 +6,9 @@
 // tag, grouped by activity_id and the dispatcher_used tag, success by bv's rule (status_or_flag). The fallback is the
 // one-page list read: a short page is weighed, a full page weighs nothing. No list request ever carries `offset`.
 //   [MUST-FAIL]   on a 6,000-row window the list page is full and weighs nothing; the aggregate returns the whole window
-//                 (every non-observe signature trace) in its two calls, no list page.
+//                 (every signature trace, observe ones included) in its two calls, no list page.
 //   [EQUIVALENCE] on one fixture short enough for one page, both fetchers' cells from the aggregate equal the cells the
-//                 old list read gives over the non-observe traces; the one named difference is the observe traces.
+//                 old list read gives, observe traces included (trace-window-observe.test.ts holds the observe switch).
 //   [MUST-FAIL]   both fetchers in index.ts name their signature immediately before their readTraceWindow call.
 //   [MUST-FAIL]   an aggregate measured but empty while the list has traces logs a scope mismatch and reads the list
 //                 page (both empty: no fallback, no loud line).
@@ -86,6 +86,7 @@ function aggregate(window: Row[], p: Record<string, unknown>, echo: boolean): Re
     shape: "traceAggregateReport", metric: p.metric, group_by: "activity_id", rows, total_groups: rows.length,
     truncated: false, empty: rows.length === 0, measured: true, matched_total: rows.reduce((s, r) => s + r.value, 0),
     ...(echo ? { tag: p.tag, group_by_tag: p.group_by_tag, success_rule: p.success_rule } : {}),
+    ...(echo && "exclude_observe" in p ? { exclude_observe: p.exclude_observe } : {}),
   };
 }
 
@@ -183,17 +184,15 @@ describe("the posterior window is counted by the aggregate", () => {
     const calls = serve(window, { pageMs: 1_200, aggMs: 3_000 });
     nameSignature(SIG);
     const got = await readTraceWindow(EP, {}, SINCE, "fetchPosteriorsForSignature");
-    const whole = window.filter((r) => (r.tags as string[]).includes(SIG_TAG) && !isObserve(r)).length;
+    const whole = window.filter((r) => (r.tags as string[]).includes(SIG_TAG)).length;
     expect(got).not.toBeNull();
     expect(got!.length).toBe(whole);
     expect(calls.list.length).toBe(0);
     expect(calls.aggregate.map((p) => p.metric)).toEqual(["count", "success_count"]);
     expect(calls.aggregate[0]).toMatchObject({
       type: "traceAggregateReport", group_by: "activity_id", tag: SIG_TAG, group_by_tag: "dispatcher_used",
-      success_rule: "status_or_flag", window_hours: 24, limit: 20000,
+      exclude_observe: false, success_rule: "status_or_flag", window_hours: 24, limit: 20000,
     });
-    // The default observe exclusion: the parameter is not sent.
-    expect("exclude_observe" in calls.aggregate[0]!).toBe(false);
     expect(errs.some((l) => l.includes("truncated") || l.includes("weighing nothing"))).toBe(false);
   });
 
@@ -207,33 +206,22 @@ describe("the posterior window is counted by the aggregate", () => {
     expect(errs.some((l) => l.includes("trace window truncated") && l.includes("weighing nothing"))).toBe(true);
   });
 
-  it("[EQUIVALENCE] both fetchers' cells from the aggregate equal the old list read's over non-observe traces", async () => {
+  it("[EQUIVALENCE] both fetchers' cells from the aggregate equal the old list read's, observe traces included", async () => {
     const window = fixture(99);
-    const observeCounted = window.filter((r) => (r.tags as string[]).includes(SIG_TAG) && isObserve(r)).length;
+    expect(window.some((r) => (r.tags as string[]).includes(SIG_TAG) && isObserve(r))).toBe(true);
     // The old read: the list, one short page, so the whole window (no signature named).
     serve(window);
     const oldAll = await readTraceWindow(EP, {}, SINCE, "old");
     expect(oldAll?.length).toBe(window.length);
-    const oldNonObserve = oldAll!.filter((r) => !isObserve(r));
     // The new read: the aggregate for the signature.
     serve(window);
     nameSignature(SIG);
     const agg = await readTraceWindow(EP, {}, SINCE, "new");
     expect(agg).not.toBeNull();
-    expect(sorted(signatureCells(agg!, SIG))).toEqual(sorted(signatureCells(oldNonObserve, SIG)));
+    expect(sorted(signatureCells(agg!, SIG))).toEqual(sorted(signatureCells(oldAll!, SIG)));
     for (const target of [undefined, ...TEMPLATES]) {
-      expect(sorted(dispatcherCells(agg!, SIG, target))).toEqual(sorted(dispatcherCells(oldNonObserve, SIG, target)));
+      expect(sorted(dispatcherCells(agg!, SIG, target))).toEqual(sorted(dispatcherCells(oldAll!, SIG, target)));
     }
-    // The one named difference: the observe traces the old read counted into the signature's cells.
-    const samples = (m: Map<unknown, Cell>) => [...m.values()].reduce((s, c) => s + c.samples, 0);
-    const oldCounted = samples(signatureCells(oldAll!, SIG)) - samples(signatureCells(oldNonObserve, SIG));
-    expect(observeCounted).toBeGreaterThan(0);
-    expect(oldCounted).toBeGreaterThan(0);
-    expect(samples(signatureCells(oldAll!, SIG))).toBe(samples(signatureCells(agg!, SIG)) + oldCounted);
-    const oldDispatcherCounted = samples(dispatcherCells(oldAll!, SIG, undefined)) - samples(dispatcherCells(oldNonObserve, SIG, undefined));
-    expect(samples(dispatcherCells(oldAll!, SIG, undefined))).toBe(samples(dispatcherCells(agg!, SIG, undefined)) + oldDispatcherCounted);
-    console.log(`[equivalence] fixture: ${observeCounted} observe traces at the signature; the old signature cells counted ` +
-      `${oldCounted} of them, the old dispatcher cells (no template filter) ${oldDispatcherCounted}`);
   });
 
   it("[FIX] the window asked for is the callers' 24 h even when the clock has moved since they computed `since`", async () => {
