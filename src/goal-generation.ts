@@ -175,10 +175,14 @@ export type OwnershipDropReason = "directed" | "operator_hold" | "pending_verifi
 type OwnedGap = { source?: unknown; directed?: unknown; summary?: unknown; classification_metadata?: Record<string, unknown>; metadata?: Record<string, unknown> };
 /** MIRROR of development-vessel's isAwaitingLandVerification (src/judge/gap-eligibility.ts:146), the predicate its
  *  compose eligibility and admission skip on: disposition pending_verification with nothing yet saying the landing
- *  failed (regressed_by, or a BEHAVIORAL VERIFICATION FAILED summary, makes the gap work again). Keep it identical. */
+ *  failed (regressed_by, or a BEHAVIORAL VERIFICATION FAILED summary, makes the gap work again). WIDER by one form:
+ *  a landed-sha stamp (pending_outcome_verification, read as dv's pending-land sweep reads it, length >= 7,
+ *  src/judge/gap-landing-verdict.ts:300) also holds. dv's cutover stamp (stampPendingLand) writes only that sha, no
+ *  disposition, so the disposition alone missed every cutover landing; the sweep clears the stamp with "". */
 export function isAwaitingLandVerification(gap: OwnedGap): boolean {
   const meta = (gap.classification_metadata ?? gap.metadata ?? {}) as Record<string, unknown>;
-  if (meta.disposition !== "pending_verification") return false;
+  const landedSha = typeof meta.pending_outcome_verification === "string" && meta.pending_outcome_verification.length >= 7;
+  if (meta.disposition !== "pending_verification" && !landedSha) return false;
   if (meta.regressed_by !== undefined && meta.regressed_by !== null) return false;
   if (String(gap.summary ?? "").includes("BEHAVIORAL VERIFICATION FAILED")) return false;
   return true;
