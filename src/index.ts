@@ -30,7 +30,7 @@ import { settleGapGoalPost, settleOneShotDispatch } from "./dispatch-refusal";
 import { BOREDOM_TAG, externalTracesSince, isIdle as checkIdle } from "./idle-check";
 import { INITIAL_EXTERNAL_GATE_STATE, deferForExternal, externalGateOn, type ExternalGateState } from "./external-gate";
 import { readTraceWindow } from "./trace-window";
-import { traceWindowSignature } from "./trace-window";
+import { traceOutcome, traceWindowSignature } from "./trace-window";
 import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
 import { DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseExternalGatePolicy, parseSelectionTrapPolicy, scoreTemplate, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
 import { candidateMode, type LearningModeName } from "./candidate-mode";
@@ -1251,8 +1251,9 @@ async function fetchPosteriorsForSignature(
       const normalized = tid.replace(/^activity:⟨(.+)⟩$/, "$1");
       const goalIdx = tplToGoal.get(normalized) ?? tplToGoal.get(tid);
       if (goalIdx === undefined) continue;
-      const status = t.status;
-      const success = status === "success" || status === "completed" || t.success === true;
+      // Success is the judge's reached, not exit status: a hollow completion is a failure, an ungraded run no sample.
+      const success = traceOutcome(t);
+      if (success === null) continue;
       let cell = cells.get(goalIdx);
       if (!cell) { cell = { alpha: 0, beta: 0, samples: 0 }; cells.set(goalIdx, cell); }
       if (success) cell.alpha += 1;
@@ -1616,8 +1617,9 @@ async function fetchDispatcherPosteriors(
           ?? (typeof t.selected_template_id === "string" ? t.selected_template_id : undefined);
         if (tid && !tid.includes(targetTpl)) continue;
       }
-      const status = t.status;
-      const success = status === "success" || status === "completed" || t.success === true;
+      // Success is the judge's reached, not exit status (see fetchPosteriorsForSignature).
+      const success = traceOutcome(t);
+      if (success === null) continue;
       let cell = cells.get(dispatcher);
       if (!cell) { cell = { alpha: 0, beta: 0, samples: 0 }; cells.set(dispatcher, cell); }
       if (success) cell.alpha += 1; else cell.beta += 1;

@@ -2,8 +2,9 @@
 //
 // The list route serves at most 100 rows a page, so one page of a busy 24 h window is a full page and weighs nothing,
 // and paging it by offset was reverted (it crossed the database CPU rule). A fetcher that names its signature
-// (traceWindowSignature) now gets the window from traceAggregateReport: count and success_count for the signature's
-// tag, grouped by activity_id and the dispatcher_used tag, success by bv's rule (status_or_flag). The fallback is the
+// (traceWindowSignature) now gets the window from traceAggregateReport: success_count and failure_count for the
+// signature's tag, grouped by activity_id and the dispatcher_used tag, success by the reach verdict (success_rule
+// reached; trace-window-reached.test.ts holds the rule). The fallback is the
 // one-page list read: a short page is weighed, a full page weighs nothing. No list request ever carries `offset`.
 //   [MUST-FAIL]   on a 6,000-row window the list page is full and weighs nothing; the aggregate returns the whole window
 //                 (every signature trace, observe ones included) in its two calls, no list page.
@@ -54,10 +55,12 @@ function fixture(n: number): Row[] {
     const activity_id = i % 13 === 0 ? `activity:⟨${tpl}⟩` : i % 17 === 0 ? "development-vessel:not-a-goal" : tpl;
     const k = i % 7;
     const row: Row = { execution_id: `e${i}`, activity_id, tags, executed_at: new Date(T0 - i * 1000).toISOString() };
-    if (k === 0) { row.status = "success"; row.success = true; }
-    else if (k === 1) { row.status = "completed"; row.success = false; }
-    else if (k === 2) { row.status = "failure"; row.success = true; }
-    else { row.status = "failure"; row.success = false; }
+    if (k === 0) { row.status = "success"; row.success = true; row.reached = true; }
+    else if (k === 1) { row.status = "completed"; row.success = false; row.reached = false; } // a hollow completion
+    else if (k === 2) { row.status = "failure"; row.success = true; } // ungraded: no verdict
+    else if (k === 3) { row.status = "completed"; row.success = true; row.reached = null; } // ungraded, verdict null
+    else if (k === 4) { row.status = "failure"; row.success = false; row.reached = true; }
+    else { row.status = "failure"; row.success = false; row.reached = false; }
     out.push(row);
   }
   return out;
@@ -71,8 +74,9 @@ function aggregate(window: Row[], p: Record<string, unknown>, echo: boolean): Re
     const tags = r.tags as string[];
     if (typeof p.tag === "string" && !tags.includes(p.tag)) continue;
     if (p.exclude_observe !== false && tags.some((t) => OBSERVE.includes(t))) continue;
-    const ok = r.success === true || r.status === "success" || r.status === "completed";
-    if (p.metric === "success_count" && !ok) continue;
+    // success_rule reached: success_count counts reached = true, failure_count reached = false; count counts every row.
+    if (p.metric === "success_count" && r.reached !== true) continue;
+    if (p.metric === "failure_count" && r.reached !== false) continue;
     const key = typeof r.activity_id === "string" ? r.activity_id : "(none)";
     const dt = tags.find((t) => t.startsWith(`${String(p.group_by_tag)}:`));
     const tag_value = dt ? dt.slice(String(p.group_by_tag).length + 1) : null;
@@ -130,8 +134,9 @@ type Cell = { alpha: number; beta: number; samples: number };
 const tid = (t: Row) => (typeof t.activity_id === "string" ? t.activity_id : undefined)
   ?? (typeof t.template_id === "string" ? t.template_id : undefined)
   ?? (typeof t.selected_template_id === "string" ? t.selected_template_id : undefined);
-const won = (t: Row) => t.status === "success" || t.status === "completed" || t.success === true;
-function bump<K>(cells: Map<K, Cell>, k: K, success: boolean) {
+const won = (t: Row) => tw.traceOutcome(t);
+function bump<K>(cells: Map<K, Cell>, k: K, success: boolean | null) {
+  if (success === null) return; // ungraded: no sample
   let c = cells.get(k);
   if (!c) { c = { alpha: 0, beta: 0, samples: 0 }; cells.set(k, c); }
   if (success) c.alpha += 1; else c.beta += 1;
@@ -184,14 +189,14 @@ describe("the posterior window is counted by the aggregate", () => {
     const calls = serve(window, { pageMs: 1_200, aggMs: 3_000 });
     nameSignature(SIG);
     const got = await readTraceWindow(EP, {}, SINCE, "fetchPosteriorsForSignature");
-    const whole = window.filter((r) => (r.tags as string[]).includes(SIG_TAG)).length;
+    const whole = window.filter((r) => (r.tags as string[]).includes(SIG_TAG) && typeof r.reached === "boolean").length;
     expect(got).not.toBeNull();
     expect(got!.length).toBe(whole);
     expect(calls.list.length).toBe(0);
-    expect(calls.aggregate.map((p) => p.metric)).toEqual(["count", "success_count"]);
+    expect(calls.aggregate.map((p) => p.metric)).toEqual(["success_count", "failure_count"]);
     expect(calls.aggregate[0]).toMatchObject({
       type: "traceAggregateReport", group_by: "activity_id", tag: SIG_TAG, group_by_tag: "dispatcher_used",
-      exclude_observe: false, success_rule: "status_or_flag", window_hours: 24, limit: 20000,
+      exclude_observe: false, success_rule: "reached", window_hours: 24, limit: 20000,
     });
     expect(errs.some((l) => l.includes("truncated") || l.includes("weighing nothing"))).toBe(false);
   });
@@ -265,7 +270,7 @@ describe("the posterior window is counted by the aggregate", () => {
     const calls = serve(window, { aggregateWindow: [] });
     nameSignature(SIG);
     const got = await readTraceWindow(EP, {}, SINCE, "fetchPosteriorsForSignature");
-    expect(calls.aggregate.length).toBe(2);
+    expect(calls.aggregate.map((p) => p.metric)).toEqual(["success_count", "failure_count", "count"]);
     expect(calls.list).toEqual([
       `${EP}/v2/activities/execution-traces?limit=1&since=${SINCE}`,
       `${EP}/v2/activities/execution-traces?limit=100&since=${SINCE}`,
@@ -280,7 +285,7 @@ describe("the posterior window is counted by the aggregate", () => {
     const calls = serve([]);
     nameSignature(SIG);
     expect(await readTraceWindow(EP, {}, SINCE, "fetchPosteriorsForSignature")).toEqual([]);
-    expect(calls.aggregate.length).toBe(2);
+    expect(calls.aggregate.map((p) => p.metric)).toEqual(["success_count", "failure_count", "count"]);
     expect(calls.list.length).toBe(1); // the one-row probe only
     expect(errs.some((l) => l.includes("scope mismatch") || l.includes("weighing nothing"))).toBe(false);
   });

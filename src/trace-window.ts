@@ -17,15 +17,29 @@
 // route rebuilds and sorts the whole 24 h window for every page (~1-1.4 s at any offset), so paging could not read a
 // day whole. The window is instead counted in the database: activity-api's traceAggregateReport, posted to the trace
 // store's resolve route, filtered to the signature's tag, grouped by activity_id and the dispatcher_used tag, success
-// counted by bv's own rule (success_rule status_or_flag: success = true, or status success/completed). Two calls, count
-// and success_count, one after the other; a report is used only when it is measured, not truncated, and echoes the tag,
-// the grouping and the rule (a producer that predates them would ignore them and count the whole window, so it is
-// treated as unavailable). Its cells come back as one row per trace they count, carrying the signature tag, the
-// dispatcher tag, the activity_id and the outcome, so the fetchers' loops weigh them unchanged.
+// by the judge's verdict (success_rule reached: reached = true is a success, reached = false a failure, no verdict
+// neither). Two calls, success_count and failure_count, one after the other (and a count only when both are empty, to
+// tell an all-ungraded window from an empty one); a report is used only when it is measured, not truncated, and echoes
+// the tag, the grouping, the observe switch and the rule (a producer that predates them would ignore them and count a
+// different window, so it is treated as unavailable). Its cells come back as one row per graded trace they count,
+// carrying the signature tag, the dispatcher tag, the activity_id and the verdict, so the fetchers' loops weigh them.
+//
+// SUCCESS IS REACHED, NOT EXIT STATUS (traceOutcome). Both fetchers used to count status success/completed (or
+// success = true) as a success, so a hollow completion (completed, reached:false) earned alpha and selection learned to
+// prefer what completes over what reaches. They now grade every row, aggregate or list, by its reach verdict, the one
+// reader activity-api's learner uses (classifyReach: reached / not-reached / ungraded); an ungraded row is no sample.
 // OBSERVE TRACES ARE COUNTED like any run (exclude_observe: false, echoed back): an observe execution still resolves
 // impulses, which make real changes, so it is evidence about the arm, exactly as the list read always counted it.
 // An unavailable aggregate falls back to the one-page list read: a short page is weighed, a full page weighs nothing.
 import { traceListRows } from "./idle-check";
+
+/**
+ * A posterior row's outcome by the judge's verdict: true when it reached, false when it did not, null when it carries
+ * no verdict (ungraded: neither a success nor a failure, so no sample). Exit status and the success flag are not read.
+ */
+export function traceOutcome(row: Record<string, unknown>): boolean | null {
+  return row.reached === true ? true : row.reached === false ? false : null;
+}
 
 /** The trace list route's page cap (GET /v2/activities/execution-traces clamps `limit` to this). */
 export const TRACE_LIST_PAGE = 100;
@@ -128,33 +142,36 @@ async function aggregateRead(
   headers: Record<string, string>,
   sinceMs: number,
   signature: string,
-): Promise<{ rows: Row[] } | { why: string; noEcho?: true }> {
+): Promise<{ rows: Row[]; ungraded?: number } | { why: string; noEcho?: true }> {
   const sigTag = `state_signature:${signature}`;
   const base = {
     type: TRACE_AGGREGATE_SHAPE, group_by: "activity_id", tag: sigTag, group_by_tag: "dispatcher_used",
     exclude_observe: false, // Observe runs resolve impulses that make real changes: they are counted like any run.
-    success_rule: "status_or_flag", // Rounded: the caller's `since` is a few ms older than this call's clock, and a ceil would read 25 h.
+    success_rule: "reached", // Rounded: the caller's `since` is a few ms older than this call's clock, and a ceil would read 25 h.
     window_hours: Math.max(1, Math.round((Date.now() - sinceMs) / 3_600_000)),
     limit: AGGREGATE_GROUP_LIMIT,
   };
-  const results: AggregateRow[][] = [];
-  for (const metric of ["count", "success_count"]) {
+  const call = async (metric: string) => {
     const got = await aggregateCall(endpoint, headers, { ...base, metric });
-    if ("why" in got) return { ...got, why: `aggregate ${got.why}` };
-    results.push(got.rows);
-  }
-  const cell = (r: AggregateRow) => JSON.stringify([r.key, r.tag_value]);
-  const successes = new Map<string, number>();
-  for (const r of results[1]!) successes.set(cell(r), (successes.get(cell(r)) ?? 0) + r.value);
+    return "why" in got ? { ...got, why: `aggregate ${got.why}` } : got;
+  };
   const rows: Row[] = [];
-  for (const r of results[0]!) {
-    const tags = r.tag_value === null ? [sigTag] : [sigTag, `dispatcher_used:${r.tag_value}`];
-    const alpha = Math.min(r.value, successes.get(cell(r)) ?? 0);
-    for (let i = 0; i < r.value; i++) {
-      const success = i < alpha;
-      // "(none)" is the aggregate's key for a row with no activity_id: the list served such a row with none, too.
-      rows.push({ ...(r.key === "(none)" ? {} : { activity_id: r.key }), tags, success, status: success ? "success" : "failure" });
+  for (const [metric, reached] of [["success_count", true], ["failure_count", false]] as const) {
+    const got = await call(metric);
+    if ("why" in got) return got;
+    for (const r of got.rows) {
+      const tags = r.tag_value === null ? [sigTag] : [sigTag, `dispatcher_used:${r.tag_value}`];
+      for (let i = 0; i < r.value; i++) {
+        // "(none)" is the aggregate's key for a row with no activity_id: the list served such a row with none, too.
+        rows.push({ ...(r.key === "(none)" ? {} : { activity_id: r.key }), tags, reached, success: reached, status: reached ? "success" : "failure" });
+      }
     }
+  }
+  if (rows.length === 0) {
+    // No graded trace. Whether the window holds ungraded ones decides whether "empty" needs checking (signatureRead).
+    const got = await call("count");
+    if ("why" in got) return got;
+    return { rows, ungraded: got.rows.reduce((n, r) => n + r.value, 0) };
   }
   return { rows };
 }
@@ -187,7 +204,7 @@ async function signatureRead(
 ): Promise<Row[] | null> {
   const startedAt = Date.now();
   const agg = await aggregateRead(endpoint, headers, sinceMs, signature);
-  if ("rows" in agg && agg.rows.length === 0) {
+  if ("rows" in agg && agg.rows.length === 0 && !agg.ungraded) {
     // EMPTY BUT MEASURED IS NOT TAKEN ON TRUST. A tenant scope the aggregate applies and the list does not (an
     // account_id equality on rows that carry none) makes every aggregate empty, which would weigh nothing silently.
     // One bounded probe (one row of the window): if the list has traces, the empty report is a scope mismatch, said
@@ -204,7 +221,8 @@ async function signatureRead(
   }
   if ("rows" in agg) {
     console.log(
-      `[boredom-vessel] ${caller}: trace window read whole — ${agg.rows.length} rows from ${TRACE_AGGREGATE_SHAPE} ` +
+      `[boredom-vessel] ${caller}: trace window read whole — ${agg.rows.length} graded rows` +
+      `${agg.ungraded ? ` (${agg.ungraded} ungraded, weighed as neither)` : ""} from ${TRACE_AGGREGATE_SHAPE} ` +
       `for state_signature:${signature} since ${new Date(sinceMs).toISOString()} (${Date.now() - startedAt} ms)`,
     );
     return agg.rows;
