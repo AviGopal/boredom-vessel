@@ -178,10 +178,14 @@ type OwnedGap = { source?: unknown; directed?: unknown; summary?: unknown; class
  *  failed (regressed_by, or a BEHAVIORAL VERIFICATION FAILED summary, makes the gap work again). WIDER by one form:
  *  a landed-sha stamp (pending_outcome_verification, read as dv's pending-land sweep reads it, length >= 7,
  *  src/judge/gap-landing-verdict.ts:300) also holds. dv's cutover stamp (stampPendingLand) writes only that sha, no
- *  disposition, so the disposition alone missed every cutover landing; the sweep clears the stamp with "". */
+ *  disposition, so the disposition alone missed every cutover landing; the sweep clears the stamp with "". The
+ *  shared fixtures (src/fixtures/land-verification-hold-fixtures.json) are the parity contract with dv's predicate. */
 export function isAwaitingLandVerification(gap: OwnedGap): boolean {
   const meta = (gap.classification_metadata ?? gap.metadata ?? {}) as Record<string, unknown>;
-  const landedSha = typeof meta.pending_outcome_verification === "string" && meta.pending_outcome_verification.length >= 7;
+  // A RELEASED stamp holds nothing: dv's release clears the disposition, keeps the sha and records it as
+  // pending_released_sha, so a stamp equal to it is a landing already judged not to have fixed the gap.
+  const landedSha = typeof meta.pending_outcome_verification === "string" && meta.pending_outcome_verification.length >= 7
+    && meta.pending_outcome_verification !== meta.pending_released_sha;
   if (meta.disposition !== "pending_verification" && !landedSha) return false;
   if (meta.regressed_by !== undefined && meta.regressed_by !== null) return false;
   if (String(gap.summary ?? "").includes("BEHAVIORAL VERIFICATION FAILED")) return false;

@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
-import { generateGapGoalCandidates } from "./goal-generation";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { generateGapGoalCandidates, isAwaitingLandVerification } from "./goal-generation";
 
 // A gap whose landing awaits its verdict (disposition pending_verification) is held by
 // development-vessel's compose eligibility and admission (isAwaitingLandVerification), but the
@@ -67,42 +69,28 @@ describe("gap-goal supply skips a landing that awaits its verdict", () => {
     const g = ordinary("verify-failed-gap", { summary: "The verify-failed-gap producer needs a repair so the walk reaches. BEHAVIORAL VERIFICATION FAILED after landing." }, { disposition: "pending_verification" });
     expect(await goalGapIds([g])).toEqual(["verify-failed-gap"]);
   });
+});
 
-  // dv's cutover stamp (development-vessel src/resolvers/vessel-mitosis-cutover.ts stampPendingLand, the
-  // classification_metadata it writes at :251-273): the stored metadata spread, then the landed sha and its
-  // bookkeeping, and no disposition. Copied key for key for both arms of its landed_unverified ternary; the
-  // removed-line predicate arm is left out (it needs a git show of the landing).
-  const NEW_SHA = "0123456789abcdef0123456789abcdef01234567";
-  const APPLIED_AT = "2026-10-23T00:00:00.000Z";
-  function cutoverStamped(id: string, landedUnverifiedReason: string | null, measurable: boolean): Gap {
-    const stampRow = ordinary(id);
-    const stampMeta = stampRow.classification_metadata!;
-    const unmeasurable = measurable ? null : { reason: "no_predicate", at: APPLIED_AT, sha: NEW_SHA, asked: `needs-human-${id}` };
-    return {
-      ...stampRow,
-      status: "open",
-      classification_metadata: {
-        ...stampMeta,
-        pending_outcome_verification: NEW_SHA,
-        pending_set_at: APPLIED_AT,
-        ...(landedUnverifiedReason !== null
-          ? { landed_unverified: true, landed_unverified_reason: landedUnverifiedReason, landed_unverified_sha: NEW_SHA }
-          : { landed_unverified: false, landed_unverified_reason: "", landed_unverified_sha: "" }),
-        pending_unmeasurable: unmeasurable ?? "",
-      },
-    } as Gap;
+// THE PARITY CONTRACT WITH development-vessel: the same fixture file, byte for byte, drives dv's
+// isAwaitingLandVerification (src/judge/gap-eligibility.ts) and this mirror. Each case is a row's summary and
+// classification_metadata (the cutover_* cases copy dv stampPendingLand's metadata write key for key) and whether
+// the hold holds it. A case is checked on the predicate and through the supply: a held row is never a goal.
+type HoldFixture = { summary: string; classification_metadata: Record<string, unknown>; expected_held: boolean };
+const FIXTURES = JSON.parse(readFileSync(join(import.meta.dir, "fixtures", "land-verification-hold-fixtures.json"), "utf-8")) as Record<string, HoldFixture | string>;
+const CASES = Object.entries(FIXTURES).filter((e): e is [string, HoldFixture] => !e[0].startsWith("_"));
+
+describe("land-verification hold: the fixtures shared with development-vessel", () => {
+  it("CONTROL the shared fixture set is present", () => {
+    expect(CASES.length).toBeGreaterThan(0);
+  });
+  for (const [name, f] of CASES) {
+    it(`${f.expected_held ? "held" : "not held"}: ${name}`, async () => {
+      const row = { id: name, summary: f.summary, category: "missing_capability", source: "substrate_detected", classification_metadata: f.classification_metadata };
+      expect(isAwaitingLandVerification(row)).toBe(f.expected_held);
+      // Through the supply the summary is led by an ordinary gap sentence: a bare "fixture" summary is not one the
+      // supply mints a goal from, held or not. The case's own summary follows it unchanged.
+      const supplied = { ...row, summary: `The ${name} producer needs a repair so the walk reaches. ${f.summary}` };
+      expect((await goalGapIds([supplied])).includes(name)).toBe(!f.expected_held);
+    });
   }
-
-  it("MUST-FAIL a gap carrying dv's cutover pending-land stamp is not turned into a goal", async () => {
-    expect(await goalGapIds([cutoverStamped("cutover-gap", null, true), ordinary("plain-gap")])).toEqual(["plain-gap"]);
-  });
-
-  it("MUST-FAIL a gap carrying dv's cutover stamp of an unverified, unmeasurable landing is not turned into a goal", async () => {
-    expect(await goalGapIds([cutoverStamped("cutover-unverified-gap", "no post-land check ran", false), ordinary("plain-gap")])).toEqual(["plain-gap"]);
-  });
-
-  it("CONTROL a cleared landed-sha stamp (\"\") does not drop a gap", async () => {
-    const g = ordinary("sha-cleared-gap", {}, { pending_outcome_verification: "" });
-    expect(await goalGapIds([g])).toEqual(["sha-cleared-gap"]);
-  });
 });

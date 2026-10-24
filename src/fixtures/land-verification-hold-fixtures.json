@@ -1,0 +1,210 @@
+{
+  "_contract": "Land-verification hold parity fixtures, shared byte for byte by development-vessel (src/judge/gap-eligibility.ts isAwaitingLandVerification) and boredom-vessel (src/goal-generation.ts mirror). Each case: the row's summary and classification_metadata, and whether the hold holds it. The cutover_* cases copy development-vessel stampPendingLand's metadata write key for key. A stamp holds when pending_outcome_verification is a string of length >= 7 that differs from pending_released_sha (the stamp a release let go of). A release made before that marker existed (disposition \"\", the stamp kept, no pending_released_sha) cannot be told apart from a re-landing over it, so it is treated as HELD, by design. These fixtures are the parity contract.",
+  "cutover_stamp_verified_arm": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": ""
+    },
+    "expected_held": true
+  },
+  "cutover_stamp_unverified_arm": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": true,
+      "landed_unverified_reason": "gap x carries no test_suite check for development-vessel",
+      "landed_unverified_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_unmeasurable": ""
+    },
+    "expected_held": true
+  },
+  "cutover_stamp_with_derived_predicate": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": {
+        "reason": "no_predicate",
+        "at": "2026-10-23T23:00:00.000Z",
+        "sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "asked": "needs-human-x"
+      },
+      "hardcoded_url": "const removed = 1;",
+      "file_path": "repos/development-vessel/src/x.ts",
+      "predicate_source": "removed_line_of_landing_commit",
+      "predicate_derived_at": "2026-10-23T23:00:00.000Z",
+      "predicate_commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "expected_held": true
+  },
+  "released_after_not_resolved": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": "",
+      "pending_released_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_note": "released: measured present"
+    },
+    "expected_held": false
+  },
+  "released_with_disposition_lifted": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": "",
+      "disposition": "",
+      "pending_released_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "expected_held": false
+  },
+  "relanded_new_sha_after_release": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "ffffffffffffffffffffffffffffffffffffffff",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": "",
+      "pending_released_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "disposition": ""
+    },
+    "expected_held": true
+  },
+  "legacy_lift_then_relanded_new_sha": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "ffffffffffffffffffffffffffffffffffffffff",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": "",
+      "disposition": ""
+    },
+    "expected_held": true
+  },
+  "cleared_stamp": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": ""
+    },
+    "expected_held": false
+  },
+  "short_stamp": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "abc12",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": ""
+    },
+    "expected_held": false
+  },
+  "disposition_pending_verification_no_stamp": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "disposition": "pending_verification"
+    },
+    "expected_held": true
+  },
+  "disposition_pending_verification_with_released_stamp": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": "",
+      "disposition": "pending_verification",
+      "pending_released_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    "expected_held": true
+  },
+  "stamp_but_regressed_by": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": "",
+      "regressed_by": {
+        "sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      }
+    },
+    "expected_held": false
+  },
+  "stamp_null_regressed_by": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": "",
+      "regressed_by": null
+    },
+    "expected_held": true
+  },
+  "stamp_but_behavioral_verification_failed": {
+    "summary": "x BEHAVIORAL VERIFICATION FAILED y",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts",
+      "pending_outcome_verification": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending_set_at": "2026-10-23T23:00:00.000Z",
+      "landed_unverified": false,
+      "landed_unverified_reason": "",
+      "landed_unverified_sha": "",
+      "pending_unmeasurable": ""
+    },
+    "expected_held": false
+  },
+  "no_stamp_no_disposition": {
+    "summary": "fixture",
+    "classification_metadata": {
+      "edit_site": "repos/development-vessel/src/x.ts"
+    },
+    "expected_held": false
+  }
+}
