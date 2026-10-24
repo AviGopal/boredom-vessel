@@ -30,6 +30,7 @@ import { settleGapGoalPost, settleOneShotDispatch } from "./dispatch-refusal";
 import { BOREDOM_TAG, externalTracesSince, isIdle as checkIdle } from "./idle-check";
 import { INITIAL_EXTERNAL_GATE_STATE, deferForExternal, externalGateOn, type ExternalGateState } from "./external-gate";
 import { readTraceWindow } from "./trace-window";
+import { traceWindowSignature } from "./trace-window";
 import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
 import { DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseExternalGatePolicy, parseSelectionTrapPolicy, scoreTemplate, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
 import { candidateMode, type LearningModeName } from "./candidate-mode";
@@ -1228,6 +1229,8 @@ async function fetchPosteriorsForSignature(
     // signature-continuity boost is off. Lifecycle-spawned nested traces
     // inherit state_signature: tags (ias-executor 95636c3) but have null template_id; the
     // goal-idx lookup skips them via `if (!tid) continue`.
+    // The signature this read weighs: readTraceWindow then counts it with the aggregate (see trace-window.ts).
+    traceWindowSignature(signature);
     const arr = await readTraceWindow(ACTIVITY_API_ENDPOINT, authHeaders(), since, "fetchPosteriorsForSignature");
     if (!arr) return cells;
     const sigTag = `state_signature:${signature}`;
@@ -1589,6 +1592,8 @@ async function fetchDispatcherPosteriors(
     const since = Date.now() - 24 * 60 * 60 * 1000;
     // See fetchPosteriorsForSignature comment — a truncated window weighs nothing, and an
     // empty map makes the Thompson draw below a uniform Beta(1,1) random choice.
+    // The signature this read weighs: readTraceWindow then counts it with the aggregate (see trace-window.ts).
+    traceWindowSignature(signature);
     const arr = await readTraceWindow(ACTIVITY_API_ENDPOINT, authHeaders(), since, "fetchDispatcherPosteriors");
     if (!arr) return cells;
     const sigTag = `state_signature:${signature}`;
