@@ -18,7 +18,6 @@ import {
 
 const SCENARIOS_DIR =
   "/workspace/validation/failure-modes/vessel-scenarios";
-const RUN_GOAL_URL = "http://127.0.0.1:8210/run-goal";
 const SCAFFOLD_TEMPLATE_ID =
   "development-vessel:scaffold-and-publish-vessel";
 
@@ -38,6 +37,8 @@ interface LlmCompletionDispatchInput {
 
 interface ResolverContext {
   llm_completion_dispatch: (input: LlmCompletionDispatchInput) => Promise<string>;
+  /** goal-host by discovery (index.ts goalHostBase), never a pinned address. */
+  goal_host_base: () => Promise<string>;
 }
 
 /** Fisher-Yates shuffle — returns a new shuffled array */
@@ -213,7 +214,7 @@ export async function resolveVesselAdditionScaffoldDispatch(
     };
   }
 
-  const dispatchResponse = await fetch(RUN_GOAL_URL, {
+  const dispatchResponse = await fetch(`${await ctx.goal_host_base()}/run-goal`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

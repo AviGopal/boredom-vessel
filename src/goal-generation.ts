@@ -215,6 +215,8 @@ export function dropOperatorOwnedGaps<T extends OwnedGap>(gaps: T[]): { kept: T[
 export async function generateGapGoalCandidates(
   activityApiEndpoint: string,
   apiKey: string,
+  /** goal-host by discovery (index.ts goalHostBase); without it the in-flight read is skipped, never pinned. */
+  goalHostBase?: () => Promise<string>,
 ): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string }; runGoal?: GapGoalRunFields }>> {
   try {
     const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
@@ -251,7 +253,8 @@ export async function generateGapGoalCandidates(
     gaps.sort((a, b) => Number(String(b.id).startsWith("baseline-typecheck-broken-")) - Number(String(a.id).startsWith("baseline-typecheck-broken-")));
     let activeGoals = new Set<string>();
     try {
-      const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_ENDPOINT ?? "http://127.0.0.1:8210";
+      if (!goalHostBase) throw new Error("goal-host undiscovered: no goal-host resolver given");
+      const GOAL_HOST_ENDPOINT = await goalHostBase();
       const dispatchRes = await fetch(`${GOAL_HOST_ENDPOINT}/resolve`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `ApiKey ${apiKey}` },
@@ -263,8 +266,9 @@ export async function generateGapGoalCandidates(
         const dispatches = dispatchJson.body?.dispatches ?? [];
         activeGoals = new Set(dispatches.map((d) => d.goal).filter((g): g is string => typeof g === "string"));
       }
-    } catch {
-      // fail-open: use empty Set on any failure
+    } catch (err) {
+      // fail-open: use empty Set on any failure, and say why
+      console.warn(`[gap-goal-supply] in-flight goals unread: ${(err as Error).message}`);
     }
     const seen = new Set<string>();
     const gapSignatures = new Set<string>();

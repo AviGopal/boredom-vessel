@@ -31,12 +31,11 @@ import { BOREDOM_TAG, externalTracesSince, isIdle as checkIdle } from "./idle-ch
 import { INITIAL_EXTERNAL_GATE_STATE, deferForExternal, externalGateOn, type ExternalGateState } from "./external-gate";
 import { readTraceWindow } from "./trace-window";
 import { traceOutcome, traceWindowSignature } from "./trace-window";
-import { readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
+import { discoverGoalHostBase, readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
 import { DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseExternalGatePolicy, parseSelectionTrapPolicy, scoreTemplate, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
 import { candidateMode, type LearningModeName } from "./candidate-mode";
 
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
-const GOAL_HOST_ENDPOINT = process.env.GOAL_HOST_VESSEL_ENDPOINT ?? "http://127.0.0.1:8210";
 const LIGHT_DISPATCH_ENDPOINT = process.env.LIGHT_DISPATCH_ENDPOINT ?? "http://127.0.0.1:8280";
 // gap-failure lesson skip set is built per dispatch cycle via buildSkipSetFromLessons
 // semantic_reject outcomes update per-gap failure lessons via handleDispatchGapFailure
@@ -990,6 +989,8 @@ const EXECUTABLE_RESOLVERS = new Set([
 // deliberately: an earlier draft declared a refresher with no caller, which would have landed
 // inert and left the backlog frozen while the diff looked correct.
 const BOREDOM_DISCOVERY_ENDPOINT = process.env["DISCOVERY_VESSEL_ENDPOINT"] ?? process.env["DISCOVERY_ENDPOINT"] ?? "http://127.0.0.1:8100";
+/** goal-host is resolved via discovery, never pinned (spend-envelope discoverGoalHostBase: throws when undiscovered). */
+const goalHostBase = (): Promise<string> => discoverGoalHostBase({ discoveryEndpoint: BOREDOM_DISCOVERY_ENDPOINT, apiKey: API_KEY });
 const EXECUTABLE_REFRESH_MS = 60_000;
 async function refreshExecutableResolvers(): Promise<void> {
   try {
@@ -1755,6 +1756,7 @@ async function dispatchGoal(
   // recovery loop pick a different arm when attempt 1 does not reach, instead of the next tick repeating the same pick.
   if (targetTemplateId) { requestBody.targetTemplateId = targetTemplateId; requestBody.reroute_on_miss = true; }
   if (stateSignatureHash) requestBody.state_signature_hash = stateSignatureHash;
+  const GOAL_HOST_ENDPOINT = await goalHostBase();
   return await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
     method: "POST",
     headers: authHeaders(),
@@ -1977,6 +1979,7 @@ async function main(): Promise<void> {
     await new Promise((r) => setTimeout(r, 10_000));
     let pollRes: Response;
     try {
+      const GOAL_HOST_ENDPOINT = await goalHostBase();
       pollRes = await fetch(`${GOAL_HOST_ENDPOINT}/executions/${dispatchId}`, {
         headers: authHeaders(),
       });
@@ -1989,6 +1992,7 @@ async function main(): Promise<void> {
     if (poll.status === "completed" || poll.status === "failed") {
       let goalHostOutcome: "success" | "failure" = "success";
       try {
+        const GOAL_HOST_ENDPOINT = await goalHostBase();
         const execRes = await fetch(
           `${GOAL_HOST_ENDPOINT}/executions/${dispatchId}`,
           { headers: { Authorization: `ApiKey ${API_KEY}` }, signal: AbortSignal.timeout(10_000) },
@@ -2749,7 +2753,7 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
       });
     }
     try {
-    const gapGoals = await generateGapGoalCandidates(ACTIVITY_API_ENDPOINT, API_KEY);
+    const gapGoals = await generateGapGoalCandidates(ACTIVITY_API_ENDPOINT, API_KEY, goalHostBase);
     for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText, ...(g.runGoal ? { run_goal: g.runGoal } : {}) });
   } catch {
     /* fail open */
@@ -3548,6 +3552,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
       const lastAt = gapGoalLastDispatchAt.get(templateId) ?? 0;
       if (Date.now() - lastAt < GAP_GOAL_COOLDOWN_MS) return null;
       try {
+        const GOAL_HOST_ENDPOINT = await goalHostBase();
         const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
@@ -3600,6 +3605,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
             for (let i = 0; i < POLL_BACKOFF_MS.length; i++) {
               await new Promise((r) => setTimeout(r, POLL_BACKOFF_MS[i]));
               try {
+                const GOAL_HOST_ENDPOINT = await goalHostBase();
                 const st = await fetch(`${GOAL_HOST_ENDPOINT}/resolve`, {
                   method: "POST",
                   headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
@@ -3870,6 +3876,7 @@ const recentWsCompletions = new Map<string, { success: boolean; received_at: num
     let success = rawSuccess;
     if (rawSuccess) {
       try {
+        const GOAL_HOST_ENDPOINT = await goalHostBase();
         const r = await fetch(GOAL_HOST_ENDPOINT + `/dispatch/${dispatchId}/reach`, { headers: authHeaders(), signal: AbortSignal.timeout(10_000) });
         if (r.ok) {
           const d = await r.json().catch(() => ({})) as { reached?: string };
@@ -3887,6 +3894,7 @@ async function resolveExecutionIdForDispatch(dispatchId: string): Promise<void> 
     if (!inFlight.has(dispatchId)) return; // already completed/reaped
     let res: Response;
     try {
+      const GOAL_HOST_ENDPOINT = await goalHostBase();
       res = await fetch(`${GOAL_HOST_ENDPOINT}/executions/${dispatchId}`, { headers: authHeaders() });
     } catch { continue; }
     if (!res.ok) continue;
@@ -4141,7 +4149,7 @@ async function poolLoop(): Promise<void> {
     return;
   }
   poolLoopActive = true;
-  console.error(`[pool] daemon starting: endpoint=${GOAL_HOST_ENDPOINT}`);
+  console.error("[pool] daemon starting: goal-host by discovery");
   await hydrateMomentum();
   subscribeSelectionEvents(() => { void poolLoop(); });
   console.log(

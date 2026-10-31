@@ -43,6 +43,20 @@ export async function discoverOwnResolveUrls(shape: string, deps: EnvelopeDeps):
   } catch (err) { return { ok: false, why: `${shape} discovery lookup failed: ${String(err)}` }; }
 }
 
+/**
+ * goal-host's http base (/run-goal, /executions/:id, /resolve), by discovery: the origin of this node's own
+ * goalDispatchAsync producer (goal-host alone advertises the shape). NO FALLBACK ADDRESS: goal-host is resolved via
+ * discovery, never pinned, so an unreadable lookup or no producer throws a GoalHostUndiscovered error.
+ */
+export async function discoverGoalHostBase(deps: EnvelopeDeps): Promise<string> {
+  const p = await discoverOwnResolveUrls("goalDispatchAsync", deps);
+  const url = p.ok ? p.urls[0] : undefined;
+  if (url) return new URL(url).origin;
+  const err = new Error(`goal-host undiscovered: ${p.ok ? "no own goalDispatchAsync producer" + (p.foreign > 0 ? ` (${p.foreign} non-own producer(s) ignored)` : "") : p.why}`);
+  err.name = "GoalHostUndiscovered";
+  throw err;
+}
+
 const noOwn = (shape: string, p: OwnProducers): string =>
   "envelope unreadable: " + (p.ok ? `no own ${shape} producer` + (p.foreign > 0 ? ` (${p.foreign} non-own producer(s) ignored)` : "") : p.why);
 

@@ -160,16 +160,6 @@
     "reason": "per-gap goal cooldown (read in src/index.ts)"
   },
   {
-    "name": "GOAL_HOST_ENDPOINT",
-    "class": "bootstrap",
-    "reason": "peer endpoint URL: goal-host (read in src/goal-generation.ts)"
-  },
-  {
-    "name": "GOAL_HOST_VESSEL_ENDPOINT",
-    "class": "bootstrap",
-    "reason": "peer endpoint URL: goal-host (read in src/index.ts)"
-  },
-  {
     "name": "LIGHT_DISPATCH_ENDPOINT",
     "class": "bootstrap",
     "reason": "peer endpoint URL: light-dispatch (read in src/index.ts)"
