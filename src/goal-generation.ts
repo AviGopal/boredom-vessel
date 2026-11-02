@@ -191,6 +191,31 @@ export function isAwaitingLandVerification(gap: OwnedGap): boolean {
   if (String(gap.summary ?? "").includes("BEHAVIORAL VERIFICATION FAILED")) return false;
   return true;
 }
+/** MIRROR of development-vessel's investigation-decline stamp (src/resolvers/gap-to-feature.ts, the decompose branch
+ *  gapDecomposition reaches): a needs_information decline stamps classification_metadata.investigation_declined =
+ *  { fingerprint: chronicEscalationFingerprint(row, "investigation_declined"), at, reason }. True while the stamped
+ *  fingerprint's READABLE row parts are unchanged: falsifier (its class, lower-cased), edit_site (dv gapEditSite's order:
+ *  edit_site, file_path, change_site, path, then a top-level file_path) and the last failure lesson's [class, reason sliced
+ *  to 300, at]. Its arming part is dv's own and is taken as given. A row change earns the retry; a missing or unparseable
+ *  stamp never skips. The shared fixtures (src/fixtures/investigation-decline-damper-fixtures.json) are the parity contract
+ *  with dv's stamp. */
+export function investigationDeclinedUnchanged(gap: OwnedGap & { file_path?: unknown }): boolean {
+  const meta = (gap.classification_metadata ?? gap.metadata ?? {}) as Record<string, unknown>;
+  const stamp = meta.investigation_declined as { fingerprint?: unknown } | undefined;
+  if (!stamp || typeof stamp.fingerprint !== "string") return false;
+  let fp: { falsifier?: unknown; edit_site?: unknown; last_outcome?: unknown };
+  try { fp = JSON.parse(stamp.fingerprint) as typeof fp; } catch { return false; }
+  if (!fp || typeof fp !== "object") return false;
+  const raw = meta.falsifier as unknown;
+  const falsifier = String((raw && typeof raw === "object" ? (raw as { class?: unknown }).class : raw) ?? "").toLowerCase();
+  let site = "";
+  for (const f of ["edit_site", "file_path", "change_site", "path"]) { const v = meta[f]; if (typeof v === "string" && v.trim()) { site = v.trim(); break; } }
+  if (!site && typeof gap.file_path === "string" && gap.file_path.trim()) site = gap.file_path.trim();
+  const lessons = Array.isArray(meta.failure_lessons) ? meta.failure_lessons as Array<Record<string, unknown> | null> : [];
+  const last = lessons[lessons.length - 1] ?? null;
+  const lastOutcome = last ? [String(last.class ?? ""), String(last.reason ?? "").slice(0, 300), String(last.at ?? "")] : null;
+  return fp.falsifier === falsifier && fp.edit_site === site && JSON.stringify(fp.last_outcome ?? null) === JSON.stringify(lastOutcome);
+}
 export function operatorOwnedReason(g: OwnedGap): OwnershipDropReason | null {
   const meta = (g.classification_metadata ?? {}) as Record<string, unknown>;
   if (g.directed === true || meta.directed === true) return "directed";
@@ -438,6 +463,12 @@ export async function generateGapGoalCandidates(
       const gRegion = String(gMeta.region ?? "").trim();
       const siteSuffix = gSite ? ` Edit ${gSite}` : "";
       const regionSuffix = gRegion ? ` in the region "${gRegion}"` : "";
+      // ONE INVESTIGATION PER STATE: development-vessel stamped this siteless gap's last investigation as declined on
+      // these same inputs (investigationDeclinedUnchanged); another walk would re-run that decline. A row change re-arms it.
+      if (!gSite && investigationDeclinedUnchanged(g as OwnedGap)) {
+        console.log(`[gap-goal-supply] SKIP ${g.id}: its investigation declined on unchanged inputs at ${String(((gMeta.investigation_declined ?? {}) as { at?: unknown }).at ?? "?")}; a row change re-arms it`);
+        continue;
+      }
       out.push({
         templateId: `gap-goal:${g.id}`,
         // No edit site: a Close goal is judged only by a landed edit, which nothing can produce here,
