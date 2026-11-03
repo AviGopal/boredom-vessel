@@ -177,7 +177,8 @@ describe("S is carried from the supply to every log line and outcome, on both po
   it("MUST-FAIL S survives the momentum snapshot's persist/reload round trip", () => {
     const s = seam();
     expect(SRC).toContain("failures_at: Object.fromEntries(lastFailureAtByTemplate), row_states: Object.fromEntries(lastRowStateByTemplate) });");
-    expect(SRC).toContain("for (const [tid, s] of restoreRowStates(saved.row_states)) lastRowStateByTemplate.set(tid, s);");
+    expect(SRC).toContain("savedRowStates = restoreRowStates(saved.row_states);");
+    expect(SRC).toContain("for (const [tid, s] of savedRowStates) lastRowStateByTemplate.set(tid, s);");
     // The outcome records keep their row_state through hydration's filter and its demotion copy ({ ...o, reward }).
     expect(SRC).toContain('(o) => o && typeof o.at === "number" && typeof o.reward === "number",');
     expect(SRC).toContain("...o,\n          reward: Math.min(o.reward, MOMENTUM_DEMOTION_FLOOR),");

@@ -237,6 +237,12 @@ export function gapGoalForgiveness(templateId: string, currentS: string | undefi
   return currentS === lastS ? "hold" : "reset";
 }
 
+/** At a restart the current row is not known yet (the supply has not run): under on_row_change a gap-goal arm with a
+ *  stored row state keeps its outcomes through the hydration prune, and the selector decides at use time. */
+export function heldAtRestart(templateId: string, storedS: string | undefined, policy: ArmMemoryPolicy): boolean {
+  return policy.gap_goal_forgive === "on_row_change" && templateId.startsWith("gap-goal:") && !!storedS;
+}
+
 /** The trap policy a template is scored with: a held arm gets no cold-window recovery; otherwise the policy unchanged. */
 export function trapPolicyForArm(f: ArmForgiveness, policy: SelectionTrapPolicy): SelectionTrapPolicy {
   return f === "hold" ? { ...policy, cold_window_ms: Number.POSITIVE_INFINITY } : policy;

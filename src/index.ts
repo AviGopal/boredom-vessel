@@ -32,7 +32,7 @@ import { INITIAL_EXTERNAL_GATE_STATE, deferForExternal, externalGateOn, type Ext
 import { readTraceWindow } from "./trace-window";
 import { traceOutcome, traceWindowSignature } from "./trace-window";
 import { discoverGoalHostBase, readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
-import { DEFAULT_ARM_MEMORY_POLICY, DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, gapGoalForgiveness, parseArmMemoryPolicy, parseExternalGatePolicy, parseSelectionTrapPolicy, pruneOutcomesByTtl, restoreRowStates, scoreTemplate, trapPolicyForArm, type ArmForgiveness, type ArmMemoryPolicy, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
+import { DEFAULT_ARM_MEMORY_POLICY, DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, gapGoalForgiveness, heldAtRestart, parseArmMemoryPolicy, parseExternalGatePolicy, parseSelectionTrapPolicy, pruneOutcomesByTtl, restoreRowStates, scoreTemplate, trapPolicyForArm, type ArmForgiveness, type ArmMemoryPolicy, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
 import { shortRowState } from "./row-state";
 import { candidateMode, type LearningModeName } from "./candidate-mode";
 
@@ -2313,6 +2313,39 @@ async function refreshSignatureAndPosteriors(): Promise<void> {
   } catch { /* tolerant */ }
 }
 
+// Selection traps: the shaped boredomSelectionPolicy (idle cost decay, cold-window failure recovery, the external gate
+// and the arm-memory fields). Read with each state refresh, and once at startup before the momentum hydration prunes,
+// so a restart under gap_goal_forgive "on_row_change" keeps the held arms' outcomes. Returns whether the row was read.
+async function readBoredomSelectionPolicy(): Promise<boolean> {
+  // Absent → defaults; present but invalid → defaults, said once per distinct reason; unreachable → keep the last read.
+  try {
+    const spRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
+      body: JSON.stringify({ impulse: { pointer: { type: "poolImpulse", shape: "boredomSelectionPolicy", status: "open", limit: 1 } } }),
+      signal: AbortSignal.timeout(4_000),
+    });
+    if (spRes.ok) {
+      policyReadOnce = true;
+      const spData = (await spRes.json()) as { body?: { impulses?: Array<{ body?: unknown }> } };
+      const parsed = parseSelectionTrapPolicy(spData?.body?.impulses?.[0]?.body ?? null);
+      selectionTrapPolicy = parsed.policy;
+      if (!parsed.ok && parsed.why !== selectionTrapPolicyWhy) console.warn(`[pool/selection-traps] boredomSelectionPolicy invalid, defaults used: ${parsed.why}`);
+      selectionTrapPolicyWhy = parsed.ok ? "" : (parsed.why ?? "");
+      const gate = parseExternalGatePolicy(spData?.body?.impulses?.[0]?.body ?? null);
+      externalGatePolicy = gate.policy;
+      if (!gate.ok && gate.why !== externalGatePolicyWhy) console.warn(`[pool/external-gate] boredomSelectionPolicy gate fields invalid, gate off: ${gate.why}`);
+      externalGatePolicyWhy = gate.ok ? "" : (gate.why ?? "");
+      const mem = parseArmMemoryPolicy(spData?.body?.impulses?.[0]?.body ?? null);
+      armMemoryPolicy = mem.policy;
+      if (!mem.ok && mem.why !== armMemoryPolicyWhy) console.warn(`[pool/selection-traps] boredomSelectionPolicy arm-memory fields invalid, defaults used (cold_window): ${mem.why}`);
+      armMemoryPolicyWhy = mem.ok ? "" : (mem.why ?? "");
+    }
+  } catch { /* unreachable — keep the last policy */ }
+  return policyReadOnce;
+}
+let policyReadOnce = false;
+
 async function refreshSubstrateState(): Promise<SubstrateState> {
   const fs = await import("node:fs/promises");
   let stagedMitosisPresent = false;
@@ -2391,31 +2424,7 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
   } catch { /* ignore */ }
   priorityWeightByShape = nextPriorityByShape;
   priorityFloorWeight = nextFloor;
-  // Selection traps: the shaped boredomSelectionPolicy (idle cost decay, cold-window failure recovery).
-  // Absent → defaults; present but invalid → defaults, said once per distinct reason; unreachable → keep the last read.
-  try {
-    const spRes = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `ApiKey ${API_KEY}` },
-      body: JSON.stringify({ impulse: { pointer: { type: "poolImpulse", shape: "boredomSelectionPolicy", status: "open", limit: 1 } } }),
-      signal: AbortSignal.timeout(4_000),
-    });
-    if (spRes.ok) {
-      const spData = (await spRes.json()) as { body?: { impulses?: Array<{ body?: unknown }> } };
-      const parsed = parseSelectionTrapPolicy(spData?.body?.impulses?.[0]?.body ?? null);
-      selectionTrapPolicy = parsed.policy;
-      if (!parsed.ok && parsed.why !== selectionTrapPolicyWhy) console.warn(`[pool/selection-traps] boredomSelectionPolicy invalid, defaults used: ${parsed.why}`);
-      selectionTrapPolicyWhy = parsed.ok ? "" : (parsed.why ?? "");
-      const gate = parseExternalGatePolicy(spData?.body?.impulses?.[0]?.body ?? null);
-      externalGatePolicy = gate.policy;
-      if (!gate.ok && gate.why !== externalGatePolicyWhy) console.warn(`[pool/external-gate] boredomSelectionPolicy gate fields invalid, gate off: ${gate.why}`);
-      externalGatePolicyWhy = gate.ok ? "" : (gate.why ?? "");
-      const mem = parseArmMemoryPolicy(spData?.body?.impulses?.[0]?.body ?? null);
-      armMemoryPolicy = mem.policy;
-      if (!mem.ok && mem.why !== armMemoryPolicyWhy) console.warn(`[pool/selection-traps] boredomSelectionPolicy arm-memory fields invalid, defaults used (cold_window): ${mem.why}`);
-      armMemoryPolicyWhy = mem.ok ? "" : (mem.why ?? "");
-    }
-  } catch { /* unreachable — keep the last policy */ }
+  await readBoredomSelectionPolicy();
   // Seam 2b: read the selectionEntropy producer's collapsed flag. When the
   // selection distribution has collapsed, raise explorationBoost so ucbScore
   // widens the UCB explore term toward under-sampled candidates; otherwise reset
@@ -3019,6 +3028,10 @@ function subscribeSelectionEvents(runSelectionPass: () => void): void {
 }
 
 async function hydrateMomentum(): Promise<void> {
+  // The arm-memory policy is read BEFORE the TTL prune below (unreachable → the defaults, i.e. cold_window).
+  const policyRead = await readBoredomSelectionPolicy();
+  let savedRowStates = new Map<string, string>();
+  let heldCount = 0;
   try {
     const raw = await Bun.file(MOMENTUM_STORE_PATH).text();
     const saved = JSON.parse(raw) as {
@@ -3029,6 +3042,7 @@ async function hydrateMomentum(): Promise<void> {
       failures_at?: Record<string, number>;
       row_states?: Record<string, unknown>;
     };
+    savedRowStates = restoreRowStates(saved.row_states);
     if (typeof saved.totalPicks === "number" && saved.totalPicks > totalPicksV24f)
       totalPicksV24f = saved.totalPicks;
     const IDLE_DEMOTION_WINDOW_MS = parseInt(process.env["BOREDOM_IDLE_DEMOTION_WINDOW_MS"] ?? "3600000", 10);
@@ -3046,7 +3060,11 @@ async function hydrateMomentum(): Promise<void> {
           (o) => o && typeof o.at === "number" && typeof o.reward === "number",
         ),
       };
-      pruneStaleOutcomes(m);
+      // on_row_change: a gap-goal arm with a stored row state is HELD through the restart (no TTL prune here); the
+      // selector decides at use time, against the row the supply reads then. Otherwise pruned as before.
+      const held = heldAtRestart(tid, savedRowStates.get(tid), armMemoryPolicy);
+      if (held) heldCount += 1;
+      pruneOutcomesByTtl(m.outcomes, Date.now(), outcomeTtlMs(), held ? "hold" : "clock");
       // A template pruned to zero outcomes is DORMANT, not unknown — keep it so the
       // snapshot can carry a picks:0 row. Dropping it here is why detector_meta_scan
       // and detector_yield_registry could never observe dormancy: with the outcome TTL
@@ -3086,13 +3104,15 @@ async function hydrateMomentum(): Promise<void> {
         lastFailureAtByTemplate.set(tid, typeof at === "number" && Number.isFinite(at) ? at : Date.now());
       }
     }
-    for (const [tid, s] of restoreRowStates(saved.row_states)) lastRowStateByTemplate.set(tid, s);
+    for (const [tid, s] of savedRowStates) lastRowStateByTemplate.set(tid, s);
     console.error(
       `[pool] momentum hydrated: ${momentumByTemplate.size} templates, totalPicks=${totalPicksV24f}`,
     );
   } catch {
     /* no snapshot or unreadable — start fresh */
   }
+  // The ABAB block boundary: one line per restart (snapshot or not) naming the arm-memory policy the hydration ran under.
+  console.log(`[pool/selection-traps] restart: arm memory hydrated under gap_goal_forgive=${armMemoryPolicy.gap_goal_forgive} outcome_ttl_ms=${armMemoryPolicy.outcome_ttl_ms} (policy ${policyRead ? "read" : "unread, defaults"}); gap-goal arms with a stored S=${savedRowStates.size}, held=${heldCount}`);
 }
 
 // ─── Cost model (V30, 2026-06-14): cost as a predicted-and-validated posterior ───
