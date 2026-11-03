@@ -1,0 +1,1440 @@
+{
+  "_contract": "Row-input fingerprint S, shared byte for byte by boredom-vessel (src/row-state.ts rowStateFingerprint) and development-vessel's parity twin. Each vector: the row (`row`), the canonical serialization S hashes (`canonical`), and S (`s`, lowercase hex sha256 of canonical's UTF-8 bytes). `same_as` / `differs_from` name another vector S must equal / differ from.",
+  "spec": {
+    "included": "status, category (top level, String(x ?? \"\")); falsifier = String((typeof f === object ? f.class : f) ?? \"\").toLowerCase() of metadata.falsifier; metadata.evidence_resolve, metadata.verify_shape, metadata.predicate_source (as found, absent → null); edit_site = the first non-blank trimmed string of metadata edit_site, file_path, change_site, path, else a top-level file_path, else \"\"; parent_gap_id = String(metadata.parent_gap_id ?? row.parent_gap_id ?? \"\"); failure_lessons = for each metadata.failure_lessons entry that is a non-array object whose String(class ?? \"\") is not \"decomposition_refusal\", in array order: [String(class ?? \"\"), String(reason ?? \"\").slice(0, 300)] (UTF-16 code units).",
+    "metadata": "row.classification_metadata if it is a non-array object, else row.metadata if it is a non-array object, else {}.",
+    "excluded": "summary (a re-emitting detector rewrites it with rolling counts), occurrence_count, example_trace_ids (not in the included list), decomposed_at, decomposition, investigated_at, investigation_declined, every object key ending in _at at any depth (including inside evidence_resolve), decomposition_refusal lessons, every lesson's at.",
+    "canonical_object_keys": [
+      "category",
+      "edit_site",
+      "evidence_resolve",
+      "failure_lessons",
+      "falsifier",
+      "parent_gap_id",
+      "predicate_source",
+      "status",
+      "verify_shape"
+    ],
+    "serialization": "JSON with no whitespace; object keys sorted at every depth in ascending UTF-16 code-unit order (JavaScript's default sort; integer-like keys are NOT placed first); keys whose value is undefined omitted and keys ending in _at dropped at every depth; arrays in their own order; each string/number/boolean/null exactly as JSON.stringify writes it alone (non-ASCII as itself, not \\u-escaped; a non-finite number is null).",
+    "hash": "S = lowercase hex sha256 of the canonical string's UTF-8 bytes; logs print S's first 8 hex characters as S=<8 hex>."
+  },
+  "vectors": [
+    {
+      "name": "base",
+      "note": "a row with every included field, plus excluded fields (decomposition, decomposed_at, investigated_at, investigation_declined, *_at, a decomposition_refusal lesson)",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656"
+    },
+    {
+      "name": "a_refusal_only_change",
+      "note": "fixture (a): only a new decomposition_refusal lesson and a new decomposed_at/decomposition: SAME S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            },
+            {
+              "at": "2030-01-02T00:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 2: the file does not exist"
+            }
+          ],
+          "decomposed_at": "2030-01-02T00:00:00.000Z",
+          "decomposition": {
+            "children": [
+              "fixture-row-base-step-1"
+            ],
+            "reason": "wrote 1 step(s); refused: step 2",
+            "parent_check": "parent check: its check reads absent"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "b_parent_check",
+      "note": "fixture (b): a parent check rewrites predicate_source / verify_shape / evidence_resolve: DIFFERENT S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "parent_gap_id": "fixture-row-base"
+            }
+          },
+          "verify_shape": "gap_status",
+          "predicate_source": "gap_falsify:parent_check",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          },
+          "falsified_at": "2030-01-02T00:00:00.000Z"
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"parent_gap_id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify:parent_check\",\"status\":\"open\",\"verify_shape\":\"gap_status\"}",
+      "s": "e83f7c27fb19e80512bff3461643d19a1f5b031146ca61db417912677d498fe9",
+      "differs_from": "base"
+    },
+    {
+      "name": "c_other_lesson_class",
+      "note": "fixture (c), a pinned design choice: a lesson of another class (a compose attempt): DIFFERENT S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            },
+            {
+              "at": "2030-01-02T00:00:00.000Z",
+              "class": "compose_execution_failure",
+              "reason": "replace_lines: the anchor was not found"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"],[\"compose_execution_failure\",\"replace_lines: the anchor was not found\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "37f07f7e002bc3842cf76f801bf9a62a092097e050c39a8833d70c0bc30cd7a1",
+      "differs_from": "base"
+    },
+    {
+      "name": "d_only_at_keys_changed",
+      "note": "fixture (d): only *_at keys (top level, metadata, nested in evidence_resolve) and a lesson's `at` change: SAME S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-02-01T00:00:00.000Z",
+        "updated_at": "2030-02-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-02-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-02-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-02-01T00:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          },
+          "last_failed_at": "2030-02-01T00:00:00.000Z"
+        },
+        "reopened_at": "2030-02-01T00:00:00.000Z"
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "refusal_reason_changed",
+      "note": "a decomposition_refusal lesson's reason changes: SAME S (the class is excluded whole)",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "a different refusal reason entirely"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "falsifier_object_form",
+      "note": "the falsifier as an object: only its class, lower-cased, counts: SAME S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": {
+            "class": "CLASS1",
+            "note": "ignored"
+          },
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "falsifier_class_changed",
+      "note": "the falsifier class changes: DIFFERENT S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class2",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class2\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "f99751b60591c7250f2e4f7338456b6254a10d9a7734b71719d4ed007ab25d74",
+      "differs_from": "base"
+    },
+    {
+      "name": "status_changed",
+      "note": "the status changes: DIFFERENT S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "pending_verification",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"pending_verification\",\"verify_shape\":\"test_report\"}",
+      "s": "0f4767d1611c0203d1a4c1241088647c6e0822293a1a1da8d2a1cb5014d394e6",
+      "differs_from": "base"
+    },
+    {
+      "name": "summary_changed",
+      "note": "the summary changes: SAME S (the summary is not in S)",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces (re-scoped)",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "f_reemission_counts_only",
+      "note": "fixture (f): a detector re-emission of the same row rewrites only the summary's rolling counts, occurrence_count and example_trace_ids (and updated_at): SAME S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (4/15 tasks ok, 11 failed) across 47 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-03-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 47,
+          "example_trace_ids": [
+            "fixture-trace-3",
+            "fixture-trace-4",
+            "fixture-trace-5"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "category_changed",
+      "note": "the category changes: DIFFERENT S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "operational_health",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"operational_health\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "899eb46cbe8e0ce55506670995e59268ccdf1657a56a6f9e23d920da44532b09",
+      "differs_from": "base"
+    },
+    {
+      "name": "parent_gap_id_changed",
+      "note": "parent_gap_id changes: DIFFERENT S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-other-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-other-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "fb8cb8f41b025aa194003c2052c83187be3e8ea586ddfaff44fd8e7ea062408f",
+      "differs_from": "base"
+    },
+    {
+      "name": "edit_site_written",
+      "note": "an edit_site is written: DIFFERENT S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          },
+          "edit_site": "repos/example-vessel/src/index.ts"
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"repos/example-vessel/src/index.ts\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "1dc7ad056a1f31bb4610dba4f37656bc4d5368822b44036aa58d978408bdfb9e",
+      "differs_from": "base"
+    },
+    {
+      "name": "top_level_file_path",
+      "note": "no metadata site, a top-level file_path: it is the edit site (gapEditSite's last fallback): same S as edit_site_written",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        },
+        "file_path": "repos/example-vessel/src/index.ts"
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"repos/example-vessel/src/index.ts\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "1dc7ad056a1f31bb4610dba4f37656bc4d5368822b44036aa58d978408bdfb9e",
+      "same_as": "edit_site_written"
+    },
+    {
+      "name": "metadata_file_path_wins_trimmed",
+      "note": "metadata file_path (trimmed) wins over a top-level file_path: same S as edit_site_written",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          },
+          "file_path": "  repos/example-vessel/src/index.ts  "
+        },
+        "file_path": "repos/other-vessel/src/main.ts"
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"repos/example-vessel/src/index.ts\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "1dc7ad056a1f31bb4610dba4f37656bc4d5368822b44036aa58d978408bdfb9e",
+      "same_as": "edit_site_written"
+    },
+    {
+      "name": "long_reason",
+      "note": "a lesson reason longer than 300: only its first 300 UTF-16 code units count",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree.................................................................................................................................................................................................................................................................. this tail is past 300"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree..................................................................................................................................................................................................................................................................\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "12c41e842ae84f208b126974e01eadcacaa08e954fb2a108c94b58a768dd8ea1"
+    },
+    {
+      "name": "long_reason_tail_changed",
+      "note": "the same lesson with a different tail past 300: same S as long_reason",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree.................................................................................................................................................................................................................................................................. another tail"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree..................................................................................................................................................................................................................................................................\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "12c41e842ae84f208b126974e01eadcacaa08e954fb2a108c94b58a768dd8ea1",
+      "same_as": "long_reason"
+    },
+    {
+      "name": "non_object_lessons_skipped",
+      "note": "null, string and array lesson entries are skipped: SAME S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            null,
+            "a string entry",
+            [
+              1,
+              2
+            ],
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "lesson_order_kept_refusal_moved",
+      "note": "reordering only moves the excluded refusal lesson: SAME S",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            },
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "key_order_shuffled",
+      "note": "the same row with every object's keys in another order: SAME S",
+      "row": {
+        "classification_metadata": {
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "occurrence_count": 40,
+          "disposition": "needs_localization",
+          "parent_gap_id": "fixture-row-parent",
+          "predicate_source": "gap_falsify",
+          "verify_shape": "test_report",
+          "evidence_resolve": {
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "shape": "substrateGap"
+          },
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "falsifier": "class1"
+        },
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "category": "missing_capability",
+        "status": "open",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "id": "fixture-row-base"
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "ca9aef73d966b8f9f6071cc8ddedaa262fc56153bd1bcf574273d5170d831656",
+      "same_as": "base"
+    },
+    {
+      "name": "integer_like_keys",
+      "note": "integer-like keys sort as strings (\"10\" before \"2\"), not numerically",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "missing_capability",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "2": "two",
+            "10": "ten",
+            "b": 1,
+            "a": [
+              true,
+              null,
+              1.5
+            ]
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":{\"10\":\"ten\",\"2\":\"two\",\"a\":[true,null,1.5],\"b\":1},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "940a4415f386e3c7af3cfacddb0723a0e74380180c7db1d70699e9f29703fc89"
+    },
+    {
+      "name": "non_ascii_category",
+      "note": "non-ASCII, quotes, backslash and newline in an included string (category): hashed as the UTF-8 of JSON.stringify's output",
+      "row": {
+        "id": "fixture-row-base",
+        "summary": "a producer for a shape returns an empty body, so the walk cannot reach (3/12 tasks ok, 9 failed) across 40 recent traces",
+        "status": "open",
+        "category": "naïve café — 日本語 ✓ \"quoted\" \\ back\nline",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "updated_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "class1",
+          "falsifier_classified_at": "2030-01-01T00:00:00.000Z",
+          "evidence_resolve": {
+            "shape": "substrateGap",
+            "pointer": {
+              "id": "fixture-row-base"
+            },
+            "checked_at": "2030-01-01T00:00:00.000Z"
+          },
+          "verify_shape": "test_report",
+          "predicate_source": "gap_falsify",
+          "parent_gap_id": "fixture-row-parent",
+          "disposition": "needs_localization",
+          "occurrence_count": 40,
+          "example_trace_ids": [
+            "fixture-trace-1",
+            "fixture-trace-2"
+          ],
+          "failure_lessons": [
+            {
+              "at": "2030-01-01T01:00:00.000Z",
+              "class": "verify_failed",
+              "reason": "its check reads absent on the current tree"
+            },
+            {
+              "at": "2030-01-01T02:00:00.000Z",
+              "class": "decomposition_refusal",
+              "reason": "no valid step: step 1: no single source file or no change"
+            }
+          ],
+          "decomposed_at": "2030-01-01T02:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step: step 1: no single source file or no change"
+          },
+          "investigated_at": "2030-01-01T02:00:00.000Z",
+          "investigation_declined": {
+            "fingerprint": "{}",
+            "at": "2030-01-01T02:00:00.000Z",
+            "reason": "needs_information"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"naïve café — 日本語 ✓ \\\"quoted\\\" \\\\ back\\nline\",\"edit_site\":\"\",\"evidence_resolve\":{\"pointer\":{\"id\":\"fixture-row-base\"},\"shape\":\"substrateGap\"},\"failure_lessons\":[[\"verify_failed\",\"its check reads absent on the current tree\"]],\"falsifier\":\"class1\",\"parent_gap_id\":\"fixture-row-parent\",\"predicate_source\":\"gap_falsify\",\"status\":\"open\",\"verify_shape\":\"test_report\"}",
+      "s": "60524301edfbb15557d80be15a7ee3e047a10813fd8fa5a62b9a764fca8375bf"
+    },
+    {
+      "name": "supply_row",
+      "note": "a siteless row the gap-goal supply turns into an investigation goal (summary names a repair; boredom's supply test reads its S from here)",
+      "row": {
+        "id": "fixture-supply-row",
+        "summary": "The fixture producer needs a repair so the walk reaches. Its body is empty.",
+        "status": "open",
+        "category": "missing_capability",
+        "source": "substrate_detected",
+        "detected_at": "2030-01-01T00:00:00.000Z",
+        "classification_metadata": {
+          "falsifier": "none",
+          "decomposed_at": "2030-01-01T00:00:00.000Z",
+          "decomposition": {
+            "children": [],
+            "reason": "no valid step"
+          }
+        }
+      },
+      "canonical": "{\"category\":\"missing_capability\",\"edit_site\":\"\",\"evidence_resolve\":null,\"failure_lessons\":[],\"falsifier\":\"none\",\"parent_gap_id\":\"\",\"predicate_source\":null,\"status\":\"open\",\"verify_shape\":null}",
+      "s": "b1cd976eb342abcd6a057b4a4bad21245c722d761f0834a9c8380ddd5cfd90d1"
+    },
+    {
+      "name": "empty_row",
+      "note": "an empty object: every field at its empty value",
+      "row": {},
+      "canonical": "{\"category\":\"\",\"edit_site\":\"\",\"evidence_resolve\":null,\"failure_lessons\":[],\"falsifier\":\"\",\"parent_gap_id\":\"\",\"predicate_source\":null,\"status\":\"\",\"verify_shape\":null}",
+      "s": "76c5ec37ed7325c3e47a3f22fc1b99f21c1c58e89dc5b0737dc58147af72d373"
+    },
+    {
+      "name": "metadata_not_an_object",
+      "note": "classification_metadata is a string: it is ignored (treated as no metadata)",
+      "row": {
+        "id": "x",
+        "summary": "s",
+        "status": "open",
+        "classification_metadata": "garbage"
+      },
+      "canonical": "{\"category\":\"\",\"edit_site\":\"\",\"evidence_resolve\":null,\"failure_lessons\":[],\"falsifier\":\"\",\"parent_gap_id\":\"\",\"predicate_source\":null,\"status\":\"open\",\"verify_shape\":null}",
+      "s": "1c17384fa8902719906aa3a6d1401345d42c13950b985a44a2b2fe35f5dff262"
+    },
+    {
+      "name": "legacy_metadata_key",
+      "note": "no classification_metadata, a `metadata` object: it is read as the metadata",
+      "row": {
+        "id": "x",
+        "summary": "s",
+        "status": "open",
+        "metadata": {
+          "falsifier": "NONE",
+          "edit_site": "repos/a/src/b.ts"
+        }
+      },
+      "canonical": "{\"category\":\"\",\"edit_site\":\"repos/a/src/b.ts\",\"evidence_resolve\":null,\"failure_lessons\":[],\"falsifier\":\"none\",\"parent_gap_id\":\"\",\"predicate_source\":null,\"status\":\"open\",\"verify_shape\":null}",
+      "s": "85ba7f176cb739b2f99a919529980b42dfe4b852038731c0ecca03a8aca961ad"
+    }
+  ]
+}

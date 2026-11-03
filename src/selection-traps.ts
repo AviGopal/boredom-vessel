@@ -182,3 +182,79 @@ export function parseExternalGatePolicy(body: unknown): { ok: boolean; policy: E
   if (errs.length) return { ok: false, policy: { ...DEFAULT_EXTERNAL_GATE_POLICY }, why: errs.join("; ") };
   return { ok: true, policy };
 }
+
+// GAP-GOAL ARM MEMORY POLICY: two more fields of the same boredomSelectionPolicy row, kept in their own object (as the
+// gate's are) so the trap policy above and its protected contract are untouched.
+//   outcome_ttl_ms: how long an outcome stays in a template's in-window mean (and, as before, the cost window). It was an
+//     in-process constant; the default is the constant's value.
+//   gap_goal_forgive: how a gap-goal arm (`gap-goal:<row>`) is forgiven.
+//     "cold_window" (the DEFAULT, an absent row or field): by the clock, exactly as every other arm (the TTL prune above
+//       and the cold-window streak recovery). Today's behaviour.
+//     "on_row_change": by the row. While the row's input fingerprint S (row-state.ts) equals the S stored with the arm's
+//       last outcome, the arm's outcomes are not TTL-pruned and its failure streak gets no cold-window recovery; when S
+//       differs, the arm is reset (outcomes cleared, streaks 0, cold): the row changed, so it earns a fresh try. An arm
+//       whose last outcome carries no S, or whose row is not in the current supply, is forgiven by the clock (unknown is
+//       not unchanged).
+// Every other arm family keeps the clock rules whatever the field says.
+export type GapGoalForgive = "cold_window" | "on_row_change";
+export interface ArmMemoryPolicy {
+  gap_goal_forgive: GapGoalForgive;
+  outcome_ttl_ms: number;
+}
+
+export const DEFAULT_ARM_MEMORY_POLICY: ArmMemoryPolicy = Object.freeze({
+  gap_goal_forgive: "cold_window",
+  outcome_ttl_ms: 60 * 60 * 1000,
+});
+
+/** Parse the arm-memory fields of a boredomSelectionPolicy body. Absent → defaults (ok). Any invalid field → ok:false, defaults. */
+export function parseArmMemoryPolicy(body: unknown): { ok: boolean; policy: ArmMemoryPolicy; why?: string } {
+  const policy: ArmMemoryPolicy = { ...DEFAULT_ARM_MEMORY_POLICY };
+  if (body === null || body === undefined) return { ok: true, policy };
+  if (typeof body !== "object" || Array.isArray(body)) return { ok: false, policy, why: "policy body is not an object" };
+  const b = body as Record<string, unknown>;
+  const errs: string[] = [];
+  if (b["gap_goal_forgive"] !== undefined) {
+    const v = b["gap_goal_forgive"];
+    if (v === "cold_window" || v === "on_row_change") policy.gap_goal_forgive = v;
+    else errs.push('gap_goal_forgive must be "cold_window" or "on_row_change"');
+  }
+  if (b["outcome_ttl_ms"] !== undefined) {
+    const v = b["outcome_ttl_ms"];
+    if (typeof v !== "number" || !Number.isFinite(v) || v < 60_000 || v > 7 * 24 * 3_600_000) errs.push("outcome_ttl_ms must be a number in [60000, 604800000]");
+    else policy.outcome_ttl_ms = v;
+  }
+  if (errs.length) return { ok: false, policy: { ...DEFAULT_ARM_MEMORY_POLICY }, why: errs.join("; ") };
+  return { ok: true, policy };
+}
+
+/** How a template's memory is forgiven at this read: by the clock, held (same row state), or reset (the row changed). */
+export type ArmForgiveness = "clock" | "hold" | "reset";
+
+export function gapGoalForgiveness(templateId: string, currentS: string | undefined, lastS: string | undefined, policy: ArmMemoryPolicy): ArmForgiveness {
+  if (policy.gap_goal_forgive !== "on_row_change" || !templateId.startsWith("gap-goal:")) return "clock";
+  if (!currentS || !lastS) return "clock";
+  return currentS === lastS ? "hold" : "reset";
+}
+
+/** The trap policy a template is scored with: a held arm gets no cold-window recovery; otherwise the policy unchanged. */
+export function trapPolicyForArm(f: ArmForgiveness, policy: SelectionTrapPolicy): SelectionTrapPolicy {
+  return f === "hold" ? { ...policy, cold_window_ms: Number.POSITIVE_INFINITY } : policy;
+}
+
+/** Drop outcomes older than the TTL from the front of a time-ordered list, in place; a held arm keeps them all. */
+export function pruneOutcomesByTtl(outcomes: Array<{ at: number }>, now: number, ttlMs: number, f: ArmForgiveness): void {
+  if (f === "hold") return;
+  const cutoff = now - ttlMs;
+  while (outcomes.length > 0 && outcomes[0]!.at < cutoff) outcomes.shift();
+}
+
+/** The persisted per-arm row states (the momentum snapshot's `row_states`): only well-formed S values are restored. */
+export function restoreRowStates(saved: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return out;
+  for (const [tid, s] of Object.entries(saved as Record<string, unknown>)) {
+    if (typeof s === "string" && /^[0-9a-f]{64}$/.test(s)) out.set(tid, s);
+  }
+  return out;
+}

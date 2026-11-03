@@ -32,7 +32,8 @@ import { INITIAL_EXTERNAL_GATE_STATE, deferForExternal, externalGateOn, type Ext
 import { readTraceWindow } from "./trace-window";
 import { traceOutcome, traceWindowSignature } from "./trace-window";
 import { discoverGoalHostBase, readBoredomEnvelope as readSpendEnvelope, type BoredomEnvelope as SpendEnvelopeVerdict } from "./spend-envelope";
-import { DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, parseExternalGatePolicy, parseSelectionTrapPolicy, scoreTemplate, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
+import { DEFAULT_ARM_MEMORY_POLICY, DEFAULT_EXTERNAL_GATE_POLICY, DEFAULT_SELECTION_TRAP_POLICY, SELECTION_TRAPS_OFF, gapGoalForgiveness, parseArmMemoryPolicy, parseExternalGatePolicy, parseSelectionTrapPolicy, pruneOutcomesByTtl, restoreRowStates, scoreTemplate, trapPolicyForArm, type ArmForgiveness, type ArmMemoryPolicy, type ExternalGatePolicy, type SelectionTrapPolicy } from "./selection-traps";
+import { shortRowState } from "./row-state";
 import { candidateMode, type LearningModeName } from "./candidate-mode";
 
 const ACTIVITY_API_ENDPOINT = process.env.ACTIVITY_API_ENDPOINT ?? "http://127.0.0.1:8080";
@@ -2409,6 +2410,10 @@ async function refreshSubstrateState(): Promise<SubstrateState> {
       externalGatePolicy = gate.policy;
       if (!gate.ok && gate.why !== externalGatePolicyWhy) console.warn(`[pool/external-gate] boredomSelectionPolicy gate fields invalid, gate off: ${gate.why}`);
       externalGatePolicyWhy = gate.ok ? "" : (gate.why ?? "");
+      const mem = parseArmMemoryPolicy(spData?.body?.impulses?.[0]?.body ?? null);
+      armMemoryPolicy = mem.policy;
+      if (!mem.ok && mem.why !== armMemoryPolicyWhy) console.warn(`[pool/selection-traps] boredomSelectionPolicy arm-memory fields invalid, defaults used (cold_window): ${mem.why}`);
+      armMemoryPolicyWhy = mem.ok ? "" : (mem.why ?? "");
     }
   } catch { /* unreachable — keep the last policy */ }
   // Seam 2b: read the selectionEntropy producer's collapsed flag. When the
@@ -2693,12 +2698,16 @@ interface ShapeDrivenCandidate {
   goal_text?: string;
   /** Structured run-goal fields for a gap goal (CHANGE-35): target shapes + bound variables, sent with the goal. */
   run_goal?: { expected_output_shapes: string[]; variables: Record<string, string> };
+  /** A gap goal's row-input fingerprint S (row-state.ts), from the row this candidate was read from. */
+  row_state?: string;
 }
 
 interface ShapeDrivenPick {
   template_id: string;
   score: number;
   reason: string;
+  /** The candidate's row-input fingerprint S (gap goals only), logged on the reservation line. */
+  row_state?: string;
 }
 
 let candidateCache: { fetchedAt: number; entries: ShapeDrivenCandidate[] } | null = null;
@@ -2754,7 +2763,7 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
     }
     try {
     const gapGoals = await generateGapGoalCandidates(ACTIVITY_API_ENDPOINT, API_KEY, goalHostBase);
-    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText, ...(g.runGoal ? { run_goal: g.runGoal } : {}) });
+    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText, ...(g.runGoal ? { run_goal: g.runGoal } : {}), ...(g.rowState ? { row_state: g.rowState } : {}) });
   } catch {
     /* fail open */
   }
@@ -2798,11 +2807,13 @@ async function fetchRecentlyProducedShapes(): Promise<Set<string>> {
 // selector wins, outcomes get recorded here so the same template-id keys
 // momentum across re-registrations / pool restarts.
 // V27 (2026-06-09): time-stamped outcomes so stale failures (e.g. from an LLM
-// outage window) decay out of the mean within OUTCOME_TTL_MS. Without decay,
+// outage window) decay out of the mean within the outcome TTL. Without decay,
 // chain templates that failed during the outage are permanently dominated by
 // deterministic templates (vessel-demand-tick mean=1.0) — UCB1's explore
 // bonus alone is insufficient when picks=10 mean=1.0 wins against picks=10 mean=0.
-const OUTCOME_TTL_MS = 60 * 60 * 1000; // 1 hour
+// The window is now shaped: boredomSelectionPolicy.outcome_ttl_ms (selection-traps.ts), read at use time, default one
+// hour (the constant's value). outcomeTtlMs() is the one reader.
+function outcomeTtlMs(): number { return armMemoryPolicy.outcome_ttl_ms; }
 // V28 (2026-06-14): outcomes carry a graded `reward` ∈ [0,1], not just a
 // success/failure bit. The mean used by UCB is the average reward, so the
 // selector discriminates *information yield* (a detector that emits gaps earns
@@ -2810,14 +2821,15 @@ const OUTCOME_TTL_MS = 60 * 60 * 1000; // 1 hour
 // completion — which previously pinned 86% of templates at mean=1.0 and
 // collapsed UCB to uniform allocation. `outcome` is retained (derived) for any
 // reader that still keys on the bit.
-const momentumByTemplate = new Map<string, { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] }>();
+// row_state: the gap-goal arm's row-input fingerprint S at the reservation this outcome grades (gap goals only).
+const momentumByTemplate = new Map<string, { outcomes: { outcome: "success" | "failure"; at: number; reward: number; row_state?: string }[] }>();
 const MOMENTUM_STORE_PATH = process.env["BOREDOM_MOMENTUM_STORE_PATH"] ?? "/workspace/boredom-momentum.json";
 let lastMomentumWriteAt = 0;
 function persistMomentum(): void {
   const now = Date.now();
   if (now - lastMomentumWriteAt < 5000) return;
   lastMomentumWriteAt = now;
-  const snapshot = JSON.stringify({ totalPicks: totalPicksV24f, templates: Object.fromEntries([...momentumByTemplate.entries()].map(([k, v]) => [k, v.outcomes])), idle: Object.fromEntries(consecutiveIdleByTemplate), failures: Object.fromEntries(consecutiveFailureByTemplate), failures_at: Object.fromEntries(lastFailureAtByTemplate) });
+  const snapshot = JSON.stringify({ totalPicks: totalPicksV24f, templates: Object.fromEntries([...momentumByTemplate.entries()].map(([k, v]) => [k, v.outcomes])), idle: Object.fromEntries(consecutiveIdleByTemplate), failures: Object.fromEntries(consecutiveFailureByTemplate), failures_at: Object.fromEntries(lastFailureAtByTemplate), row_states: Object.fromEntries(lastRowStateByTemplate) });
   Bun.write(MOMENTUM_STORE_PATH, snapshot).catch(() => {});
 }
 const consecutiveIdleByTemplate = new Map<string, number>();
@@ -2843,14 +2855,43 @@ let selectionTrapPolicyWhy = "";
 let externalGatePolicy: ExternalGatePolicy = { ...DEFAULT_EXTERNAL_GATE_POLICY };
 let externalGatePolicyWhy = "";
 let externalGateState: ExternalGateState = { ...INITIAL_EXTERNAL_GATE_STATE };
+// The arm-memory fields of the same row (outcome TTL, gap-goal forgiveness); defaults (cold_window) until read.
+let armMemoryPolicy: ArmMemoryPolicy = { ...DEFAULT_ARM_MEMORY_POLICY };
+let armMemoryPolicyWhy = "";
+// Each gap-goal arm's row state S at its last graded outcome (persisted as row_states); on_row_change compares it with
+// the row the supply reads now. Recorded on both policy values; acted on only under on_row_change.
+const lastRowStateByTemplate = new Map<string, string>();
+// The S each gap-goal dispatch reserved, for the grades taken inside that same dispatch call (POST refusal, transport
+// error); the terminal-status grader carries its own copy, since a later reservation may overwrite this entry.
+const reservedRowStateByTemplate = new Map<string, string>();
+/** The S of a gap-goal arm's row as the current supply read it (the candidate cache), or undefined. */
+function currentRowState(templateId: string): string | undefined {
+  return candidateCache?.entries.find((e) => e.template_id === templateId)?.row_state;
+}
+/** How this arm's memory is forgiven right now (always "clock" under the default cold_window). */
+function armForgiveness(templateId: string, currentS: string | undefined = currentRowState(templateId)): ArmForgiveness {
+  return gapGoalForgiveness(templateId, currentS, lastRowStateByTemplate.get(templateId), armMemoryPolicy);
+}
+/** on_row_change: the arm's row changed, so its memory is cleared (outcomes, failure and idle streaks) and it is cold. */
+function resetGapGoalArm(templateId: string, s: string, where: string): void {
+  const before = lastRowStateByTemplate.get(templateId);
+  const m = momentumByTemplate.get(templateId);
+  if (m) m.outcomes.length = 0;
+  consecutiveFailureByTemplate.delete(templateId);
+  lastFailureAtByTemplate.delete(templateId);
+  consecutiveIdleByTemplate.delete(templateId);
+  lastRowStateByTemplate.set(templateId, s);
+  console.log(`[pool/selection-traps] ${templateId} row changed S=${shortRowState(before)}→S=${shortRowState(s)} (${where}): arm reset, cold`);
+  persistMomentum();
+}
 // Reward a clean-but-empty tick earns. Non-zero so health/observer detectors
 // stay periodically sampleable via the UCB explore bonus, but well below a
 // productive tick (1.0) so finding-producing detectors win more budget.
 const IDLE_REWARD = 0.2;
 
-function pruneStaleOutcomes(m: { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] }): void {
-  const cutoff = Date.now() - OUTCOME_TTL_MS;
-  while (m.outcomes.length > 0 && m.outcomes[0]!.at < cutoff) m.outcomes.shift();
+function pruneStaleOutcomes(m: { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] }, templateId?: string): void {
+  // A held gap-goal arm (on_row_change, same row state) keeps its outcomes; everything else is pruned by the TTL.
+  pruneOutcomesByTtl(m.outcomes, Date.now(), outcomeTtlMs(), templateId === undefined ? "clock" : armForgiveness(templateId));
 }
 
 // Novelty grading (2026-06-14, next recursion of V28): a `productive` tick that
@@ -2876,7 +2917,7 @@ function recordNovelty(templateId: string, kind: "novel" | "redundant" | "idle")
   let s = noveltyStatsByTemplate.get(templateId);
   if (!s) { s = []; noveltyStatsByTemplate.set(templateId, s); }
   s.push({ at: Date.now(), kind });
-  const cutoff = Date.now() - OUTCOME_TTL_MS;
+  const cutoff = Date.now() - outcomeTtlMs();
   while (s.length > 0 && s[0]!.at < cutoff) s.shift();
   while (s.length > 50) s.shift();
 }
@@ -2893,9 +2934,14 @@ function gradeNovelty(templateId: string, hashes: string[] | undefined): "novel"
   return fresh.length > 0 ? "novel" : "redundant";
 }
 
-function recordOutcomeByTemplate(templateId: string, outcome: boolean | number): void {
+function recordOutcomeByTemplate(templateId: string, outcome: boolean | number, graded?: { row_state?: string }): void {
   // Accepts a legacy boolean (true→1.0, false→0.0) or a graded reward ∈ [0,1].
   const reward = typeof outcome === "number" ? Math.max(0, Math.min(1, outcome)) : (outcome ? 1 : 0);
+  // A gap-goal outcome carries the row state S its dispatch reserved: given by the grader, else the reservation's.
+  const isGapGoal = templateId.startsWith("gap-goal:");
+  const rowState = graded !== undefined ? graded.row_state : (isGapGoal ? reservedRowStateByTemplate.get(templateId) : undefined);
+  // on_row_change: an outcome on a row state other than the arm's last one starts that arm's memory afresh.
+  if (isGapGoal && rowState && armForgiveness(templateId, rowState) === "reset") resetGapGoalArm(templateId, rowState, "at grade");
   if (reward <= IDLE_REWARD) {
     consecutiveIdleByTemplate.set(templateId, (consecutiveIdleByTemplate.get(templateId) ?? 0) + 1);
   } else {
@@ -2910,14 +2956,16 @@ function recordOutcomeByTemplate(templateId: string, outcome: boolean | number):
     consecutiveFailureByTemplate.set(templateId, 0);
     lastFailureAtByTemplate.delete(templateId);
   }
-  let m: { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } | undefined = momentumByTemplate.get(templateId) as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } | undefined;
+  let m: { outcomes: { outcome: "success" | "failure"; at: number; reward: number; row_state?: string }[] } | undefined = momentumByTemplate.get(templateId) as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number; row_state?: string }[] } | undefined;
   if (!m || !Array.isArray((m as unknown as { outcomes?: unknown }).outcomes)) {
-    const fresh: { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] } = { outcomes: [] };
+    const fresh: { outcomes: { outcome: "success" | "failure"; at: number; reward: number; row_state?: string }[] } = { outcomes: [] };
     momentumByTemplate.set(templateId, fresh as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] });
     m = fresh;
   }
-  m.outcomes.push({ outcome: reward > 0 ? "success" : "failure", at: Date.now(), reward });
-  pruneStaleOutcomes(m as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] });
+  m.outcomes.push({ outcome: reward > 0 ? "success" : "failure", at: Date.now(), reward, ...(rowState ? { row_state: rowState } : {}) });
+  // The arm's last outcome's S (recorded on both policy values): an outcome with no S makes it unknown again.
+  if (isGapGoal) { if (rowState) lastRowStateByTemplate.set(templateId, rowState); else lastRowStateByTemplate.delete(templateId); }
+  pruneStaleOutcomes(m as unknown as { outcomes: { outcome: "success" | "failure"; at: number; reward: number }[] }, templateId);
   // Soft cap on memory: keep at most 50 outcomes per template, dropping oldest.
   while (m.outcomes.length > 50) m.outcomes.shift();
   totalPicksV24f += 1;
@@ -2979,6 +3027,7 @@ async function hydrateMomentum(): Promise<void> {
       idle?: Record<string, number>;
       failures?: Record<string, number>;
       failures_at?: Record<string, number>;
+      row_states?: Record<string, unknown>;
     };
     if (typeof saved.totalPicks === "number" && saved.totalPicks > totalPicksV24f)
       totalPicksV24f = saved.totalPicks;
@@ -3000,7 +3049,7 @@ async function hydrateMomentum(): Promise<void> {
       pruneStaleOutcomes(m);
       // A template pruned to zero outcomes is DORMANT, not unknown — keep it so the
       // snapshot can carry a picks:0 row. Dropping it here is why detector_meta_scan
-      // and detector_yield_registry could never observe dormancy: with OUTCOME_TTL_MS
+      // and detector_yield_registry could never observe dormancy: with the outcome TTL
       // at one hour, anything idle for an hour vanished on the next hydration.
       // Downstream readers already treat a missing entry and an empty one alike
       // (see the coldPool filter, which uses outcomes.length ?? 0 === 0).
@@ -3037,6 +3086,7 @@ async function hydrateMomentum(): Promise<void> {
         lastFailureAtByTemplate.set(tid, typeof at === "number" && Number.isFinite(at) ? at : Date.now());
       }
     }
+    for (const [tid, s] of restoreRowStates(saved.row_states)) lastRowStateByTemplate.set(tid, s);
     console.error(
       `[pool] momentum hydrated: ${momentumByTemplate.size} templates, totalPicks=${totalPicksV24f}`,
     );
@@ -3057,7 +3107,9 @@ async function hydrateMomentum(): Promise<void> {
 // fold value-per-cost into the UCB score so equal-yield templates rank by how cheaply
 // they yield. duration_ms is the cost parameter already measured; cost_usd / tokens
 // are not yet captured and stay warm-start-neutral until they are.
-const COST_TTL_MS = OUTCOME_TTL_MS; // share the 1h reward window
+// The cost window shares the outcome window (boredomSelectionPolicy.outcome_ttl_ms, default one hour), as it shared the
+// constant before.
+function costTtlMs(): number { return outcomeTtlMs(); }
 const DEFAULT_COST_MS = 5000;       // pool default before any observation lands
 // V31 (2026-06-14): cost is a VECTOR, not a scalar — {wall_ms, tokens}. wall_ms is
 // the throughput limiter (§7); tokens is the LLM-$ dimension (input + 5×output,
@@ -3108,7 +3160,7 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
   // Validate-before-update: residual of each actual against the current expectation.
   const prior = costByTemplate.get(templateId);
   if (prior && prior.samples.length > 0) {
-    const live = prior.samples.filter((s) => s.at >= Date.now() - COST_TTL_MS);
+    const live = prior.samples.filter((s) => s.at >= Date.now() - costTtlMs());
     if (live.length > 0) {
       pushResidual(costResidualsMs, ms, live.reduce((s, o) => s + o.ms, 0) / live.length);
       const tokLive = live.filter((s) => s.tokens > 0);
@@ -3131,7 +3183,7 @@ function recordCostByTemplate(templateId: string, ms: number, tokens: number): v
   c.ewma = newEwma;
   c.n += 1;
   c.samples.push({ ms, tokens: tok, at: Date.now() });
-  const cutoff = Date.now() - COST_TTL_MS;
+  const cutoff = Date.now() - costTtlMs();
   while (c.samples.length > 0 && c.samples[0]!.at < cutoff) c.samples.shift();
   // Ring buffer: keep at most COST_SAMPLE_WINDOW recent samples for percentile estimates.
   if (c.samples.length > COST_SAMPLE_WINDOW) {
@@ -3144,7 +3196,7 @@ function computePoolMedians(): { ms: number; tokens: number } {
   // Memo within a selection cycle. Median, not mean, so one 180s timeout (or one
   // huge-token drafter run) doesn't drag the pool reference up.
   if (_poolMedianCache && Date.now() - _poolMedianCache.at < 1000) return { ms: _poolMedianCache.ms, tokens: _poolMedianCache.tokens };
-  const cutoff = Date.now() - COST_TTL_MS;
+  const cutoff = Date.now() - costTtlMs();
   const msMeans: number[] = [];
   const tokMeans: number[] = [];
   for (const c of costByTemplate.values()) {
@@ -3187,7 +3239,7 @@ function expectedCostMs(templateId: string): number {
 function expectedCostTokens(templateId: string): number {
   const c = costByTemplate.get(templateId);
   if (!c) return 0;
-  const live = c.samples.filter((s) => s.at >= Date.now() - COST_TTL_MS && s.tokens > 0);
+  const live = c.samples.filter((s) => s.at >= Date.now() - costTtlMs() && s.tokens > 0);
   if (live.length === 0) return 0;
   return live.reduce((s, o) => s + o.tokens, 0) / live.length;
 }
@@ -3222,7 +3274,7 @@ function writeSelectorStateSnapshot(): void {
   try {
     const perTemplate: Array<{ template_id: string; picks: number; mean: number; novel_fraction: number | null; productive_picks: number; expected_cost_ms: number; expected_cost_tokens: number; value_per_sec: number | null }> = [];
     for (const [tid, m] of momentumByTemplate.entries()) {
-      pruneStaleOutcomes(m);
+      pruneStaleOutcomes(m, tid);
       const picks = m.outcomes.length;
       // Zero-pick templates MUST appear in the snapshot: detector_meta_scan and
       // detector_yield_registry define dormancy as picks < 1 over this array, so
@@ -3293,7 +3345,7 @@ function writeSelectorStateSnapshot(): void {
       // = expectations about cost are systematically wrong = a detected constraint
       // (analog of budget_exhausted). mean_cost_residual kept (= ms) for back-compat.
       ...(() => {
-        const liveOf = (arr: { rel: number; at: number }[]) => arr.filter((r) => r.at >= Date.now() - COST_TTL_MS);
+        const liveOf = (arr: { rel: number; at: number }[]) => arr.filter((r) => r.at >= Date.now() - costTtlMs());
         const meanOf = (arr: { rel: number; at: number }[]) => { const l = liveOf(arr); return l.length ? Math.round((l.reduce((s, r) => s + r.rel, 0) / l.length) * 1000) / 1000 : null; };
         const med = computePoolMedians();
         const msR = meanOf(costResidualsMs), tokR = meanOf(costResidualsTok);
@@ -3335,7 +3387,7 @@ function writeSelectorStateSnapshot(): void {
 function templateMomentum(templateId: string): number {
   const m = momentumByTemplate.get(templateId);
   if (!m || m.outcomes.length === 0) return 1.5; // cold-start bonus (mirrors V22)
-  pruneStaleOutcomes(m);
+  pruneStaleOutcomes(m, templateId);
   if (m.outcomes.length === 0) return 1.5;
   // V28: average graded reward (information yield), Laplace-smoothed.
   const rewardSum = m.outcomes.reduce((s, o) => s + o.reward, 0);
@@ -3404,7 +3456,9 @@ function ucbScoreImpl(
 ): { score: number; reason: string; idle_cost_decayed?: boolean; cold_recovered?: boolean } {
   void unpickedCount;
   const m = momentumByTemplate.get(templateId);
-  if (m) pruneStaleOutcomes(m); // V27: ensure stale outcomes don't poison the score
+  // on_row_change, same row state: the gap-goal arm is HELD (no TTL prune, no cold-window recovery). Otherwise "clock".
+  const forgiveness = armForgiveness(templateId);
+  if (m) pruneStaleOutcomes(m, templateId); // V27: ensure stale outcomes don't poison the score
   const now = Date.now();
   const picks = m?.outcomes.length ?? 0;
   // The formula lives in selection-traps.ts (pure, pinned by test/ratchet/selection-traps.test.ts):
@@ -3427,7 +3481,7 @@ function ucbScoreImpl(
     idleReward: IDLE_REWARD,
     now,
     costNote: `${Math.round(expCost)}ms${expTok > 0 ? `/${Math.round(expTok)}tok` : ""}`,
-  }, policy);
+  }, trapPolicyForArm(forgiveness, policy));
 }
 
 async function pickByShapeAvailability(
@@ -3444,6 +3498,10 @@ async function pickByShapeAvailability(
     !(c.template_id.startsWith("gap-goal:") &&
       Date.now() - (gapGoalLastDispatchAt.get(c.template_id) ?? 0) < GAP_GOAL_COOLDOWN_MS));
   if (eligible.length === 0) return null;
+  // on_row_change: a gap-goal arm whose row changed since its last outcome is reset before anything reads its memory.
+  for (const c of eligible) {
+    if (c.row_state && armForgiveness(c.template_id, c.row_state) === "reset") resetGapGoalArm(c.template_id, c.row_state, "at score");
+  }
 
   const coldPool = eligible.filter((c) => (momentumByTemplate.get(c.template_id)?.outcomes.length ?? 0) === 0);
   let best: ShapeDrivenPick | null = null;
@@ -3475,7 +3533,9 @@ async function pickByShapeAvailability(
       best = {
         template_id: c.template_id,
         score: ucb.score,
-        reason: `${ucb.reason} inputs=${inputMatchSummary}`,
+        // A held arm (on_row_change, same row state) says so; under the default the reason is unchanged.
+        reason: `${ucb.reason}${armForgiveness(c.template_id) === "hold" ? ` row-held S=${shortRowState(lastRowStateByTemplate.get(c.template_id))}` : ""} inputs=${inputMatchSummary}`,
+        ...(c.row_state ? { row_state: c.row_state } : {}),
       };
     }
     // The same pick with the trap rules off: when they differ, the rules changed this pick — said, so it is visible.
@@ -3541,6 +3601,8 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
   if (templateId.startsWith("gap-goal:")) {
     const cand = candidateCache?.entries.find((e) => e.template_id === templateId);
     if (cand?.goal_text) {
+      // The row state S this dispatch is reserved on: stored with whichever outcome grades it.
+      const reservedS = cand.row_state;
       // Wirehead guard (gap boredom-gap-goal-grades-dispatch-post-not-reach):
       // grading the POST 202 as success inflated these arms to mean=1.00 at
       // ~50ms cost — they monopolized selection (80/106 reservations observed
@@ -3551,6 +3613,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
       // biases against dispatch spam). The POST itself records cost only.
       const lastAt = gapGoalLastDispatchAt.get(templateId) ?? 0;
       if (Date.now() - lastAt < GAP_GOAL_COOLDOWN_MS) return null;
+      if (reservedS) reservedRowStateByTemplate.set(templateId, reservedS); else reservedRowStateByTemplate.delete(templateId);
       try {
         const GOAL_HOST_ENDPOINT = await goalHostBase();
         const res = await fetch(`${GOAL_HOST_ENDPOINT}/run-goal`, {
@@ -3620,8 +3683,8 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
                 // Terminal iff it has left "running". `reached` is the honest verdict:
                 // a completed-but-hollow dispatch is a real failure and must debit.
                 if (rec.status && rec.status !== "running") {
-                  recordOutcomeByTemplate(templateId, rec.reached === true);
-                  console.log(`[gap-goal/grade] ${templateId} dispatch=${dispatchId} terminal status=${rec.status} reached=${String(rec.reached)} after ${i + 1} polls`);
+                  recordOutcomeByTemplate(templateId, rec.reached === true, { row_state: reservedS });
+                  console.log(`[gap-goal/grade] ${templateId} dispatch=${dispatchId} terminal status=${rec.status} reached=${String(rec.reached)} after ${i + 1} polls S=${shortRowState(reservedS)}`);
                   return;
                 }
               } catch {
@@ -3629,7 +3692,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
                 continue;
               }
             }
-            console.warn(`[gap-goal/grade] ${templateId} dispatch=${dispatchId} NOT GRADED — no terminal status within ${POLL_BACKOFF_MS.reduce((a, b) => a + b, 0) / 1000}s (${sawRunning ? "still running" : "never observed"}). Recording no outcome; a deadline is not a verdict.`);
+            console.warn(`[gap-goal/grade] ${templateId} dispatch=${dispatchId} NOT GRADED — no terminal status within ${POLL_BACKOFF_MS.reduce((a, b) => a + b, 0) / 1000}s (${sawRunning ? "still running" : "never observed"}). Recording no outcome; a deadline is not a verdict. S=${shortRowState(reservedS)}`);
           })().catch(() => { /* never grade on an error in the grader itself */ });
         }
         return { dispatch_id: dispatchId || "gap-goal-dispatch", success: true };
@@ -4257,7 +4320,8 @@ async function poolLoop(): Promise<void> {
         }
         console.log(
           `[pool/shape] reserving ${shapePick.template_id} score=${shapePick.score.toFixed(2)} ` +
-          `(${shapePick.reason}) in_flight=${inFlight.size}/${MAX_CONCURRENT}`,
+          `(${shapePick.reason}) in_flight=${inFlight.size}/${MAX_CONCURRENT}` +
+          (shapePick.template_id.startsWith("gap-goal:") ? ` S=${shortRowState(shapePick.row_state)}` : ""),
         );
         if (Date.now() - lastSelectionSnapshotAt > 60_000) {
           lastSelectionSnapshotAt = Date.now();

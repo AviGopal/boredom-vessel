@@ -1,3 +1,4 @@
+import { rowStateFingerprint } from "./row-state";
 
 /** Structured run-goal fields a gap goal carries (CHANGE-35): its target shapes and bound variables. */
 export interface GapGoalRunFields { expected_output_shapes: string[]; variables: Record<string, string> }
@@ -242,7 +243,7 @@ export async function generateGapGoalCandidates(
   apiKey: string,
   /** goal-host by discovery (index.ts goalHostBase); without it the in-flight read is skipped, never pinned. */
   goalHostBase?: () => Promise<string>,
-): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string }; runGoal?: GapGoalRunFields }>> {
+): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string }; runGoal?: GapGoalRunFields; rowState?: string }>> {
   try {
     const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
     const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
@@ -297,7 +298,7 @@ export async function generateGapGoalCandidates(
     }
     const seen = new Set<string>();
     const gapSignatures = new Set<string>();
-    const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string; }; runGoal?: GapGoalRunFields }> = [];
+    const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string; }; runGoal?: GapGoalRunFields; rowState?: string }> = [];
     for (const g of gaps) {
       const sig = `${g.gap_subtype ?? ""}:${g.summary.split(/(?<=[.!?])\s/)[0] ?? g.summary}`.toLowerCase().replace(/\s+/g, " ");
       if (gapSignatures.has(sig)) continue;
@@ -325,6 +326,7 @@ export async function generateGapGoalCandidates(
           shapes: [],
           source: "gap_generated",
           gapId: g.id,
+          rowState: rowStateFingerprint(g),
           classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
         });
         if (out.length >= 5) break;
@@ -419,6 +421,7 @@ export async function generateGapGoalCandidates(
           shapes: ["canonical_gap_signature"],
           source: "gap_generated",
           gapId: g.id,
+          rowState: rowStateFingerprint(g),
           classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
         });
         if (out.length >= 5) break;
@@ -431,6 +434,7 @@ export async function generateGapGoalCandidates(
     shapes: ["canonicalized_gap_identity", "per_gap_failure_lessons"],
     source: "gap_generated",
     gapId: g.id,
+    rowState: rowStateFingerprint(g),
     classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
   });
   out.push({
@@ -439,6 +443,7 @@ export async function generateGapGoalCandidates(
     shapes: ["canonicalized_gap_identity"],
     source: "gap_generated",
     gapId: g.id,
+    rowState: rowStateFingerprint(g),
     classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
   });
   if (out.length >= 5) break;
@@ -479,6 +484,8 @@ export async function generateGapGoalCandidates(
         shapes: ["canonicalized_gap_identity"],
         source: "gap_generated",
         gapId: g.id,
+        // The row-input fingerprint S of the row this goal was read from (row-state.ts): the arm's evidence belongs to it.
+        rowState: rowStateFingerprint(g),
         classificationMetadata: { gap_subtype: g.gap_subtype, category: g.category, detected_at: g.detected_at },
         // CHANGE-35: an investigation of a gap with no edit site asks for its DECOMPOSITION, structured: the target shape
         // and the gap id go on the run-goal body, so goal-host binds them instead of recovering them from the text.

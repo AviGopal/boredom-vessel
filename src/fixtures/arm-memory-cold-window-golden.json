@@ -1,0 +1,760 @@
+{
+  "_contract": "Golden for the DEFAULT arm-memory policy (gap_goal_forgive absent = cold_window): the selector's scores, reasons and kept outcomes must equal these, generated from the parent commit's scoreTemplate and its one-hour TTL prune (drop from the front while at < now - 3600000), whatever row states the arms carry.",
+  "now": 1903824000000,
+  "cases": [
+    {
+      "name": "gap_goal_same_s_3_failures_2h_ago",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903816620000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903816680000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903816740000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 3,
+      "consecutiveIdle": 3,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903816740000
+    },
+    {
+      "name": "gap_goal_same_s_3_failures_10m_ago",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903823220000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903823280000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903823340000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 3,
+      "consecutiveIdle": 3,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903823340000
+    },
+    {
+      "name": "gap_goal_same_s_mixed_window",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903813200000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903813260000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903822800000,
+          "reward": 1,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 0,
+      "consecutiveIdle": 0,
+      "costAdj": 1.4,
+      "shapeAvail": 1,
+      "priorityWeight": 2,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "gap_goal_same_s_8_failures_cold_crowd",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [],
+      "consecutiveFailures": 8,
+      "consecutiveIdle": 0,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 2,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903819800000
+    },
+    {
+      "name": "gap_goal_changed_s_3_failures_2h_ago",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903816620000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903816680000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903816740000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 3,
+      "consecutiveIdle": 3,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903816740000
+    },
+    {
+      "name": "gap_goal_changed_s_3_failures_10m_ago",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903823220000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903823280000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903823340000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 3,
+      "consecutiveIdle": 3,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903823340000
+    },
+    {
+      "name": "gap_goal_changed_s_mixed_window",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903813200000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903813260000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903822800000,
+          "reward": 1,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 0,
+      "consecutiveIdle": 0,
+      "costAdj": 1.4,
+      "shapeAvail": 1,
+      "priorityWeight": 2,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "gap_goal_changed_s_8_failures_cold_crowd",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [],
+      "consecutiveFailures": 8,
+      "consecutiveIdle": 0,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 2,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903819800000
+    },
+    {
+      "name": "gap_goal_no_last_s_3_failures_2h_ago",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903816620000,
+          "reward": 0
+        },
+        {
+          "at": 1903816680000,
+          "reward": 0
+        },
+        {
+          "at": 1903816740000,
+          "reward": 0
+        }
+      ],
+      "consecutiveFailures": 3,
+      "consecutiveIdle": 3,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903816740000
+    },
+    {
+      "name": "gap_goal_no_last_s_3_failures_10m_ago",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903823220000,
+          "reward": 0
+        },
+        {
+          "at": 1903823280000,
+          "reward": 0
+        },
+        {
+          "at": 1903823340000,
+          "reward": 0
+        }
+      ],
+      "consecutiveFailures": 3,
+      "consecutiveIdle": 3,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903823340000
+    },
+    {
+      "name": "gap_goal_no_last_s_mixed_window",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903813200000,
+          "reward": 0
+        },
+        {
+          "at": 1903813260000,
+          "reward": 0
+        },
+        {
+          "at": 1903822800000,
+          "reward": 1
+        }
+      ],
+      "consecutiveFailures": 0,
+      "consecutiveIdle": 0,
+      "costAdj": 1.4,
+      "shapeAvail": 1,
+      "priorityWeight": 2,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "gap_goal_no_last_s_8_failures_cold_crowd",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [],
+      "consecutiveFailures": 8,
+      "consecutiveIdle": 0,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 2,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903819800000
+    },
+    {
+      "name": "gap_goal_no_current_s_3_failures_2h_ago",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903816620000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903816680000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903816740000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 3,
+      "consecutiveIdle": 3,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903816740000
+    },
+    {
+      "name": "gap_goal_no_current_s_3_failures_10m_ago",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903823220000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903823280000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903823340000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 3,
+      "consecutiveIdle": 3,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903823340000
+    },
+    {
+      "name": "gap_goal_no_current_s_mixed_window",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [
+        {
+          "at": 1903813200000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903813260000,
+          "reward": 0,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+          "at": 1903822800000,
+          "reward": 1,
+          "row_state": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "consecutiveFailures": 0,
+      "consecutiveIdle": 0,
+      "costAdj": 1.4,
+      "shapeAvail": 1,
+      "priorityWeight": 2,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "gap_goal_no_current_s_8_failures_cold_crowd",
+      "template_id": "gap-goal:fixture-row",
+      "outcomes": [],
+      "consecutiveFailures": 8,
+      "consecutiveIdle": 0,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 3,
+      "coldCrowd": 2,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "last_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "lastFailureAt": 1903819800000
+    },
+    {
+      "name": "tick_idle_sampled",
+      "template_id": "fixture-tick",
+      "outcomes": [
+        {
+          "at": 1903824000000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903823760000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903823520000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903823280000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903823040000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903822800000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903822560000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903822320000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903822080000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903821840000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903821600000,
+          "reward": 0.2
+        },
+        {
+          "at": 1903821360000,
+          "reward": 0.2
+        }
+      ],
+      "consecutiveFailures": 0,
+      "consecutiveIdle": 12,
+      "costAdj": 2,
+      "shapeAvail": 2,
+      "priorityWeight": 1,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1
+    },
+    {
+      "name": "tick_failing_old",
+      "template_id": "fixture-tick-b",
+      "outcomes": [
+        {
+          "at": 1903806000000,
+          "reward": 0
+        },
+        {
+          "at": 1903806060000,
+          "reward": 0
+        },
+        {
+          "at": 1903806120000,
+          "reward": 0
+        },
+        {
+          "at": 1903806180000,
+          "reward": 0
+        }
+      ],
+      "consecutiveFailures": 4,
+      "consecutiveIdle": 0,
+      "costAdj": 0.5,
+      "shapeAvail": 0.8,
+      "priorityWeight": 1,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "lastFailureAt": 1903806180000
+    },
+    {
+      "name": "tick_productive",
+      "template_id": "fixture-tick-c",
+      "outcomes": [
+        {
+          "at": 1903820340000,
+          "reward": 0
+        },
+        {
+          "at": 1903820460000,
+          "reward": 1
+        },
+        {
+          "at": 1903823700000,
+          "reward": 1
+        }
+      ],
+      "consecutiveFailures": 0,
+      "consecutiveIdle": 0,
+      "costAdj": 1.7,
+      "shapeAvail": 1.5,
+      "priorityWeight": 1.5,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1
+    },
+    {
+      "name": "tick_cold_never_failed",
+      "template_id": "fixture-tick-d",
+      "outcomes": [],
+      "consecutiveFailures": 0,
+      "consecutiveIdle": 0,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 1,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1.6
+    },
+    {
+      "name": "tick_with_s_fields_ignored",
+      "template_id": "fixture-tick-e",
+      "outcomes": [
+        {
+          "at": 1903822200000,
+          "reward": 0
+        },
+        {
+          "at": 1903822260000,
+          "reward": 0
+        }
+      ],
+      "consecutiveFailures": 2,
+      "consecutiveIdle": 0,
+      "costAdj": 1,
+      "shapeAvail": 1,
+      "priorityWeight": 1,
+      "coldCrowd": 0,
+      "totalPicks": 2000,
+      "explorationBoost": 1,
+      "current_s": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "last_s": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "lastFailureAt": 1903822260000
+    }
+  ],
+  "results": [
+    {
+      "name": "gap_goal_same_s_3_failures_2h_ago",
+      "kept": 0,
+      "score": 4.8,
+      "reason": "ucb=cold picks=0 shape=1.00 prio=3.00 coldCrowd=0 cold-recovered 3→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_same_s_3_failures_10m_ago",
+      "kept": 3,
+      "score": 0.14772577143461088,
+      "reason": "mean=0.00 ucb=3.15 cost=5000ms×1.00 picks=3 shape=1.00 pull=0 prio=3.00 idle×3 fail×3",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_same_s_mixed_window",
+      "kept": 1,
+      "score": 18.083880891599975,
+      "reason": "mean=1.00 ucb=5.46 cost=5000ms×1.40 picks=1 shape=1.00 pull=0 prio=2.00",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_same_s_8_failures_cold_crowd",
+      "kept": 0,
+      "score": 1.5999999999999999,
+      "reason": "ucb=cold picks=0 shape=1.00 prio=3.00 coldCrowd=2 cold-recovered 8→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_changed_s_3_failures_2h_ago",
+      "kept": 0,
+      "score": 4.8,
+      "reason": "ucb=cold picks=0 shape=1.00 prio=3.00 coldCrowd=0 cold-recovered 3→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_changed_s_3_failures_10m_ago",
+      "kept": 3,
+      "score": 0.14772577143461088,
+      "reason": "mean=0.00 ucb=3.15 cost=5000ms×1.00 picks=3 shape=1.00 pull=0 prio=3.00 idle×3 fail×3",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_changed_s_mixed_window",
+      "kept": 1,
+      "score": 18.083880891599975,
+      "reason": "mean=1.00 ucb=5.46 cost=5000ms×1.40 picks=1 shape=1.00 pull=0 prio=2.00",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_changed_s_8_failures_cold_crowd",
+      "kept": 0,
+      "score": 1.5999999999999999,
+      "reason": "ucb=cold picks=0 shape=1.00 prio=3.00 coldCrowd=2 cold-recovered 8→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_no_last_s_3_failures_2h_ago",
+      "kept": 0,
+      "score": 4.8,
+      "reason": "ucb=cold picks=0 shape=1.00 prio=3.00 coldCrowd=0 cold-recovered 3→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_no_last_s_3_failures_10m_ago",
+      "kept": 3,
+      "score": 0.14772577143461088,
+      "reason": "mean=0.00 ucb=3.15 cost=5000ms×1.00 picks=3 shape=1.00 pull=0 prio=3.00 idle×3 fail×3",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_no_last_s_mixed_window",
+      "kept": 1,
+      "score": 18.083880891599975,
+      "reason": "mean=1.00 ucb=5.46 cost=5000ms×1.40 picks=1 shape=1.00 pull=0 prio=2.00",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_no_last_s_8_failures_cold_crowd",
+      "kept": 0,
+      "score": 1.5999999999999999,
+      "reason": "ucb=cold picks=0 shape=1.00 prio=3.00 coldCrowd=2 cold-recovered 8→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_no_current_s_3_failures_2h_ago",
+      "kept": 0,
+      "score": 4.8,
+      "reason": "ucb=cold picks=0 shape=1.00 prio=3.00 coldCrowd=0 cold-recovered 3→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_no_current_s_3_failures_10m_ago",
+      "kept": 3,
+      "score": 0.14772577143461088,
+      "reason": "mean=0.00 ucb=3.15 cost=5000ms×1.00 picks=3 shape=1.00 pull=0 prio=3.00 idle×3 fail×3",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_no_current_s_mixed_window",
+      "kept": 1,
+      "score": 18.083880891599975,
+      "reason": "mean=1.00 ucb=5.46 cost=5000ms×1.40 picks=1 shape=1.00 pull=0 prio=2.00",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "gap_goal_no_current_s_8_failures_cold_crowd",
+      "kept": 0,
+      "score": 1.5999999999999999,
+      "reason": "ucb=cold picks=0 shape=1.00 prio=3.00 coldCrowd=2 cold-recovered 8→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "tick_idle_sampled",
+      "kept": 12,
+      "score": 0.34702188657799504,
+      "reason": "mean=0.20 ucb=1.58 cost=5000ms×1.00(idle-decayed from 2.00) picks=12 shape=2.00 pull=2 idle×12",
+      "cold_recovered": false,
+      "idle_cost_decayed": true
+    },
+    {
+      "name": "tick_failing_old",
+      "kept": 0,
+      "score": 1.5999999999999999,
+      "reason": "ucb=cold picks=0 shape=0.80 coldCrowd=0 cold-recovered 4→0",
+      "cold_recovered": true,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "tick_productive",
+      "kept": 2,
+      "score": 18.588592684451513,
+      "reason": "mean=1.00 ucb=3.86 cost=5000ms×1.70 picks=2 shape=1.50 pull=0 prio=1.50",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "tick_cold_never_failed",
+      "kept": 0,
+      "score": 2.44,
+      "reason": "ucb=cold picks=0 shape=1.00 coldCrowd=0",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    },
+    {
+      "name": "tick_with_s_fields_ignored",
+      "kept": 2,
+      "score": 0.9649406983301642,
+      "reason": "mean=0.00 ucb=3.86 cost=5000ms×1.00 picks=2 shape=1.00 pull=0 fail×2",
+      "cold_recovered": false,
+      "idle_cost_decayed": false
+    }
+  ]
+}
