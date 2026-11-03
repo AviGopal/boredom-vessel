@@ -217,6 +217,13 @@ export function investigationDeclinedUnchanged(gap: OwnedGap & { file_path?: unk
   const lastOutcome = last ? [String(last.class ?? ""), String(last.reason ?? "").slice(0, 300), String(last.at ?? "")] : null;
   return fp.falsifier === falsifier && fp.edit_site === site && JSON.stringify(fp.last_outcome ?? null) === JSON.stringify(lastOutcome);
 }
+/** How many of a row's decomposition children (classification_metadata.decomposition.children) are in `openIds`.
+ *  TEMPORARY: read only by the gap-goal supply's open-children skip (see its removal condition there). */
+export function openDecompositionChildren(meta: Record<string, unknown> | null | undefined, openIds: ReadonlySet<string>): number {
+  const d = meta?.decomposition as { children?: unknown } | null | undefined;
+  const children = d && typeof d === "object" && Array.isArray(d.children) ? d.children : [];
+  return new Set(children.filter((c): c is string => typeof c === "string" && openIds.has(c))).size;
+}
 export function operatorOwnedReason(g: OwnedGap): OwnershipDropReason | null {
   const meta = (g.classification_metadata ?? {}) as Record<string, unknown>;
   if (g.directed === true || meta.directed === true) return "directed";
@@ -264,7 +271,7 @@ export async function generateGapGoalCandidates(
       body?: { gaps?: Array<{ id: string; summary: string; gap_subtype?: string }> };
       gaps?: Array<{ id: string; summary: string; gap_subtype?: string }>;
     };
-    const rawGaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; gap_subtype?: string; category?: string; detected_at?: string; source?: string; directed?: boolean; classification_metadata?: Record<string, unknown> }>;
+    const rawGaps = (json.body?.gaps ?? json.gaps ?? []) as Array<{ id: string; summary: string; status?: string; gap_subtype?: string; category?: string; detected_at?: string; source?: string; directed?: boolean; classification_metadata?: Record<string, unknown> }>;
     // ONE ADMISSION POLICY: pass the raw window through the mirrored dev-vessel admission
     // gate BEFORE any scoring/minting (see admitActionableGapsMirror above).
     const admitted = admitActionableGapsMirror(rawGaps);
@@ -296,6 +303,8 @@ export async function generateGapGoalCandidates(
       // fail-open: use empty Set on any failure, and say why
       console.warn(`[gap-goal-supply] in-flight goals unread: ${(err as Error).message}`);
     }
+    // The ids this read shows open (the resolve asks for status "open"), for the open-children skip below.
+    const openGapIds = new Set(rawGaps.filter((r) => String(r.status ?? "open") === "open").map((r) => String(r.id)));
     const seen = new Set<string>();
     const gapSignatures = new Set<string>();
     const out: Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string; }; runGoal?: GapGoalRunFields; rowState?: string }> = [];
@@ -468,6 +477,17 @@ export async function generateGapGoalCandidates(
       const gRegion = String(gMeta.region ?? "").trim();
       const siteSuffix = gSite ? ` Edit ${gSite}` : "";
       const regionSuffix = gRegion ? ` in the region "${gRegion}"` : "";
+      // A DECOMPOSED PARENT WAITS FOR ITS STEPS. TEMPORARY LANE FILTER (removal debt, accepted as such): while any child
+      // in this row's decomposition.children is open in the gap list this pass already read, the parent is not offered;
+      // its work is its children. A child absent from that list counts as not open (absence is not openness), so no
+      // fetch is made per child. It retires when the selector's reward for a reached investigation can be credited to
+      // the children instead of the parent, or when, after the row-change forgiveness (gap_goal_forgive: on_row_change)
+      // has soaked, parent re-picks with open children stay at 0 with this read disabled.
+      const openSteps = openDecompositionChildren(gMeta, openGapIds);
+      if (openSteps > 0) {
+        console.log(`[gap-goal-supply] SKIP ${g.id}: decomposed into ${openSteps} open step(s); their work comes first`);
+        continue;
+      }
       // ONE INVESTIGATION PER STATE: development-vessel stamped this siteless gap's last investigation as declined on
       // these same inputs (investigationDeclinedUnchanged); another walk would re-run that decline. A row change re-arms it.
       if (!gSite && investigationDeclinedUnchanged(g as OwnedGap)) {
