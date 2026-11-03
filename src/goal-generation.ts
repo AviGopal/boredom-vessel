@@ -199,11 +199,17 @@ export function isAwaitingLandVerification(gap: OwnedGap): boolean {
  *  edit_site, file_path, change_site, path, then a top-level file_path) and the last failure lesson's [class, reason sliced
  *  to 300, at]. Its arming part is dv's own and is taken as given. A row change earns the retry; a missing or unparseable
  *  stamp never skips. The shared fixtures (src/fixtures/investigation-decline-damper-fixtures.json) are the parity contract
- *  with dv's stamp. */
+ *  with dv's stamp. A stamp that also carries row_state (S) is compared by S instead (see below; the S vectors in
+ *  src/fixtures/row-state-vectors.json are that parity contract). */
 export function investigationDeclinedUnchanged(gap: OwnedGap & { file_path?: unknown }): boolean {
   const meta = (gap.classification_metadata ?? gap.metadata ?? {}) as Record<string, unknown>;
-  const stamp = meta.investigation_declined as { fingerprint?: unknown } | undefined;
-  if (!stamp || typeof stamp.fingerprint !== "string") return false;
+  const stamp = meta.investigation_declined as { fingerprint?: unknown; row_state?: unknown } | undefined;
+  if (!stamp || typeof stamp !== "object") return false;
+  // A1(S): development-vessel also stamps the row-input fingerprint S of the declined row (row_state, row-state.ts).
+  // When present it decides alone: unchanged while the row's S is the same, so the decline's own write-back (a
+  // decomposition_refusal lesson, decomposed_at / decomposition, any *_at) does not re-arm it. Absent: the legacy compare.
+  if (typeof stamp.row_state === "string") return stamp.row_state === rowStateFingerprint(gap);
+  if (typeof stamp.fingerprint !== "string") return false;
   let fp: { falsifier?: unknown; edit_site?: unknown; last_outcome?: unknown };
   try { fp = JSON.parse(stamp.fingerprint) as typeof fp; } catch { return false; }
   if (!fp || typeof fp !== "object") return false;
