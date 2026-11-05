@@ -251,12 +251,187 @@ export function dropOperatorOwnedGaps<T extends OwnedGap>(gaps: T[]): { kept: T[
   return { kept, dropped };
 }
 
+// ── UNARMED SRC-SITE ROWS (gap-goal-unarmed-skip) ─────────────────────────────────────────
+// MIRROR of development-vessel's compose eligibility (src/judge/gap-eligibility.ts composeEligibilitySkipReason, its
+// "unarmed" verdict): a row whose falsifier class (an object's .class or a string, lower-cased) is neither class1 nor
+// class2, or whose check_supply ledger refused the very test_suite file its evidence_resolve runs, is refused by
+// feature_compose as ineligible (unarmed). A gap goal for such a row whose edit_site names a src/ file routes to that
+// compose and is refused there. dv's own check supply already sends every such open row a check-writing goal (or holds
+// it in its parity control arm, or marks it scope_excluded or exhausted), so a walk at it adds a refusal and nothing
+// else, and on a control-arm row it also touches the supply's control. The shared fixtures
+// (src/fixtures/unarmed-src-site-fixtures.json) are the parity contract with dv's predicate.
+const vesselFileOf = (file: unknown, vessel: unknown): { vessel: string | null; rel: string } | null => {
+  if (typeof file !== "string" || !file.trim()) return null;
+  const m = /^(?:\.\/)*(?:repos\/([^/]+)\/)?(.+)$/.exec(file.trim());
+  if (!m) return null;
+  return { vessel: m[1] ?? (typeof vessel === "string" && vessel ? vessel.replace(/^repos\//, "") : null), rel: m[2]! };
+};
+export function unarmedForCompose(meta: Record<string, unknown>): boolean {
+  const raw = meta.falsifier as unknown;
+  const cls = String((raw && typeof raw === "object" ? (raw as { class?: unknown }).class : raw) ?? "").toLowerCase();
+  if (cls !== "class1" && cls !== "class2") return true;
+  const ledger = meta.check_supply as { state?: unknown; test_file?: unknown; vessel?: unknown } | null | undefined;
+  if (!ledger || typeof ledger !== "object" || ledger.state !== "arm_refused") return false;
+  const er = meta.evidence_resolve as { shape?: unknown; input?: { test_file?: unknown; vessel?: unknown } } | null | undefined;
+  if (!er || typeof er !== "object" || er.shape !== "test_suite" || !er.input || typeof er.input !== "object") return false;
+  const refused = vesselFileOf(ledger.test_file, ledger.vessel);
+  const check = vesselFileOf(er.input.test_file, er.input.vessel);
+  return !!refused && !!check && refused.rel === check.rel && (!refused.vessel || !check.vessel || refused.vessel === check.vessel);
+}
+/** A gap goal's row is unarmed for compose and its edit_site names a src/ file (repos/<vessel>/src/… or src/…). */
+export function unarmedSrcSite(meta: Record<string, unknown>): boolean {
+  const site = String(meta.edit_site ?? "").trim();
+  return /^(?:\.\/)*(?:repos\/[^/]+\/)?src\//.test(site) && unarmedForCompose(meta);
+}
+
+// The decision: whether the pool dispatches a gap goal for such a row when it wins the pick (index.ts
+// pickByShapeAvailability), an activity selected by the activityVariantMask pool impulse.
+//   - variant-0 (`boredom-vessel:gap-goal-unarmed-skip`, the control): dispatch it as before; the pick is marked.
+//   - variant-1 (`…-v1`): dispatch the best unflagged candidate of the same ranking instead (none: nothing this pass).
+// Read only at a pick a flagged candidate wins. Each decision logs one line and posts its own trace (output
+// gapGoalUnarmedSkip); its grade is decided by its consumer, the goal that filled the slot: goal-host's reached verdict
+// for that dispatch (reached / not reached); a slot filled by no goal-host walk, no dispatch, or no terminal read
+// leaves it ungraded, logged.
+export const UNARMED_SKIP_ACTIVITY = "boredom-vessel:gap-goal-unarmed-skip";
+export const UNARMED_SKIP_CREDIT_ACTIVITY = "boredom-vessel:gap-goal-unarmed-skip-credit";
+export const unarmedSkipVariantId = (variant: number): string => (variant === 0 ? UNARMED_SKIP_ACTIVITY : `${UNARMED_SKIP_ACTIVITY}-v${variant}`);
+const GUS_LOG = `[${UNARMED_SKIP_ACTIVITY}]`;
+/** How long a decision may wait for its slot's verdict before it is dropped as ungraded. */
+const GUS_PENDING_MAX_MS = 2 * 60 * 60_000;
+type GusMaskRow = { id?: string; body?: unknown };
+type GusPending = { traceId: string; variant: number; gapId: string; dispatched: string; at: number };
+export type UnarmedSkipDeps = {
+  readMasks?: () => Promise<GusMaskRow[]>;
+  postTrace?: (t: Record<string, unknown>) => Promise<number | null>;
+  nowMs?: () => number;
+};
+let gusDeps: UnarmedSkipDeps = {};
+let gusApi: { endpoint: string; apiKey: string } | null = null;
+const gusPending = new Map<string, GusPending>();
+let lastGusPoolLog = -Infinity;
+let gusSeq = 0;
+/** Tests only: the seams the decision and its credit use; pending decisions are dropped. */
+export function __setUnarmedSkipDepsForTests(d: UnarmedSkipDeps | null): void { gusDeps = d ?? {}; gusPending.clear(); lastGusPoolLog = -Infinity; }
+const gusNowMs = (): number => gusDeps.nowMs?.() ?? Date.now();
+async function gusReadMasks(): Promise<GusMaskRow[]> {
+  const dv = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
+  const res = await fetch(`${dv}/v2/impulses/resolve`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(gusApi?.apiKey ? { Authorization: `ApiKey ${gusApi.apiKey}` } : {}) },
+    body: JSON.stringify({ impulse: { type: "poolImpulse", shape: "activityVariantMask", status: "open" } }),
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!res.ok) throw new Error(`pool answered HTTP ${res.status}`);
+  const imps = ((await res.json()) as { body?: { impulses?: unknown } })?.body?.impulses;
+  if (!Array.isArray(imps)) throw new Error("pool answered no impulses");
+  return imps as GusMaskRow[];
+}
+async function gusPost(t: Record<string, unknown>, what: string): Promise<void> {
+  try {
+    const st = gusDeps.postTrace ? await gusDeps.postTrace(t) : gusApi ? await (async () => {
+      const r = await fetch(`${gusApi!.endpoint}/v2/activities/execution-traces`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `ApiKey ${gusApi!.apiKey}` },
+        body: JSON.stringify(t),
+        signal: AbortSignal.timeout(5_000),
+      });
+      try { await r.body?.cancel(); } catch { /* swallow */ }
+      return r.status;
+    })() : null;
+    if (st === null || st < 200 || st >= 300) console.warn(`${GUS_LOG} ${what} not posted (http=${st ?? "none"})`);
+  } catch (err) { console.warn(`${GUS_LOG} ${what} not posted: ${String((err as Error)?.message ?? err).slice(0, 160)}`); }
+}
+/** The variant in force for this activity (the newest open mask row whose [from, until) holds now). Never throws. */
+export async function unarmedSkipVariant(nowIso: string): Promise<{ variant: number; why: string }> {
+  let rows: GusMaskRow[];
+  try {
+    rows = await (gusDeps.readMasks ?? gusReadMasks)();
+  } catch (err) {
+    if (Date.now() - lastGusPoolLog >= 30_000) { lastGusPoolLog = Date.now(); console.log(`${GUS_LOG} pool_read shape=activityVariantMask ok=false`); }
+    const why = `mask_unread (${String((err as Error)?.message ?? err).slice(0, 160)}): variant-0`;
+    console.warn(`${GUS_LOG} ${why}`);
+    return { variant: 0, why };
+  }
+  if (Date.now() - lastGusPoolLog >= 30_000) { lastGusPoolLog = Date.now(); console.log(`${GUS_LOG} pool_read shape=activityVariantMask ok=true`); }
+  const now = Date.parse(nowIso);
+  for (const r of rows) {
+    const b = (r?.body ?? {}) as Record<string, unknown>;
+    if (b["activity_id"] !== UNARMED_SKIP_ACTIVITY) continue;
+    const from = Date.parse(String(b["from"] ?? "")), until = Date.parse(String(b["until"] ?? ""));
+    if (!Number.isFinite(from) || !Number.isFinite(until) || now < from || now >= until) continue;
+    const v = b["active_variant"];
+    if (v !== 0 && v !== 1) return { variant: 0, why: `mask ${String(r.id)} names unknown variant ${JSON.stringify(v)}: variant-0` };
+    return { variant: v, why: `mask ${String(r.id)} [${String(b["from"])}, ${String(b["until"])}) by ${String(b["by"])}: ${String(b["reason"])}` };
+  }
+  return { variant: 0, why: "no mask in force: variant-0" };
+}
+/**
+ * A PICK a flagged gap goal won. `runnerUp` is the best unflagged candidate of the same ranking (null: none). Returns
+ * the template to dispatch (null: nothing this pass) and the decision's trace id, which the dispatch carries to its
+ * settle. Never throws (a failure is variant-0: the winner).
+ */
+export async function decideUnarmedSkip(winner: { template_id: string }, runnerUp: { template_id: string } | null): Promise<{ dispatch: string | null; decision: string; variant: number }> {
+  const gapId = winner.template_id.replace(/^gap-goal:/, "");
+  try {
+    const now = gusNowMs();
+    const nowIso = new Date(now).toISOString();
+    const m = await unarmedSkipVariant(nowIso);
+    const dispatch = m.variant === 1 ? (runnerUp?.template_id ?? null) : winner.template_id;
+    const traceId = `gap-goal-unarmed-skip-${gapId.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 60)}-${now}-${process.pid}-${++gusSeq}`;
+    console.log(m.variant === 1
+      ? `${GUS_LOG} skipped ${winner.template_id} (unarmed src-site) → dispatched ${dispatch ?? "none"} variant=1 (${m.why}) decision=${traceId}`
+      : `${GUS_LOG} would skip ${winner.template_id} (unarmed src-site) → dispatched ${winner.template_id} variant=0 (${m.why}) decision=${traceId}`);
+    const id = unarmedSkipVariantId(m.variant);
+    void gusPost({
+      execution_id: traceId, template_id: id, activity_id: id, activity_variant_id: id, status: "completed", success: true, started_at: nowIso, duration_ms: 0,
+      input_shapes: ["substrateGap"], output_shapes: ["gapGoalUnarmedSkip"],
+      tasks: [{ id: "decide-pick", resolver_id: "deterministic", resolver_tier: "deterministic", success: true, input_impulse_ids: [], output_impulse_ids: [`gapGoalUnarmedSkip:${traceId}`] }],
+      tags: [`gap_goal_unarmed_skip_variant:${m.variant}`],
+      metadata: { gapGoalUnarmedSkip: { variant: m.variant, gap_id: gapId, winner: winner.template_id, dispatched: dispatch, decided_at: nowIso } },
+    }, `own trace of ${gapId}`);
+    for (const [k, p] of gusPending) if (now - p.at > GUS_PENDING_MAX_MS) { gusPending.delete(k); console.log(`${GUS_LOG} ungraded ${p.traceId}: no verdict for its slot within 2 h`); }
+    gusPending.set(traceId, { traceId, variant: m.variant, gapId, dispatched: dispatch ?? "", at: now });
+    if (dispatch === null) settleUnarmedSkip(traceId, null, "no dispatch in the pass");
+    return { dispatch, decision: traceId, variant: m.variant };
+  } catch (err) {
+    console.warn(`${GUS_LOG} decision failed (${String((err as Error)?.message ?? err).slice(0, 160)}): variant-0, dispatching the winner`);
+    return { dispatch: winner.template_id, decision: "", variant: 0 };
+  }
+}
+/** The goal that filled a decision's slot settles it: reached (goal-host's verdict for that dispatch) -> reached,
+ *  false -> not reached, null -> ungraded with `why`. Once per decision; an unknown decision settles nothing. */
+export function settleUnarmedSkip(decision: string, reached: boolean | null, why: string, dispatchId?: string): boolean {
+  try {
+    const p = gusPending.get(decision);
+    if (!p) return false;
+    gusPending.delete(decision);
+    if (reached === null) { console.log(`${GUS_LOG} ungraded ${p.traceId}: ${why}`); return true; }
+    const now = gusNowMs();
+    const impulse = `gapGoalUnarmedSkip:${p.traceId}`;
+    console.log(`${GUS_LOG} settled ${p.traceId} reached=${reached} dispatched=${p.dispatched} dispatch=${dispatchId ?? "?"}`);
+    void gusPost({
+      execution_id: `gap-goal-unarmed-skip-credit-${p.traceId.replace(/^gap-goal-unarmed-skip-/, "")}`,
+      template_id: UNARMED_SKIP_CREDIT_ACTIVITY, activity_id: UNARMED_SKIP_CREDIT_ACTIVITY, activity_variant_id: UNARMED_SKIP_CREDIT_ACTIVITY,
+      status: reached ? "completed" : "failed", success: reached,
+      ...(reached ? {} : { failure_mode: { type: "verifier_negative", reason: `the goal that filled the slot (${p.dispatched}) did not reach` } }),
+      started_at: new Date(now).toISOString(), duration_ms: 0, composition_chain: [p.traceId],
+      tasks: [{ id: "slot-reach", resolver_id: "deterministic", resolver_tier: "deterministic", success: reached, input_impulse_ids: [impulse], output_impulse_ids: [],
+        consumed_provenance: [{ impulse_id: impulse, producer_execution_id: p.traceId, origin: "ancestor" }] }],
+      tags: [reached ? "reached:true" : "reached:false", `gap_goal_unarmed_skip_variant:${p.variant}`],
+      metadata: { producer_execution_id: p.traceId, variant: p.variant, gap_id: p.gapId, dispatched: p.dispatched, settled_by: dispatchId ?? null, after_ms: now - p.at },
+    }, `credit of ${p.traceId}`);
+    return true;
+  } catch { return false; }
+}
+
 export async function generateGapGoalCandidates(
   activityApiEndpoint: string,
   apiKey: string,
   /** goal-host by discovery (index.ts goalHostBase); without it the in-flight read is skipped, never pinned. */
   goalHostBase?: () => Promise<string>,
-): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string }; runGoal?: GapGoalRunFields; rowState?: string }>> {
+): Promise<Array<{ templateId: string; goalText: string; shapes: string[]; source: "gap_generated"; gapId: string; classificationMetadata: { gap_subtype?: string; category?: string; detected_at?: string }; runGoal?: GapGoalRunFields; rowState?: string; unarmedSrcSite?: true }>> {
+  // The decision's trace posts use this supply's activity-api and key (gap-goal-unarmed-skip).
+  gusApi = { endpoint: activityApiEndpoint, apiKey };
   try {
     const DEV_VESSEL_ENDPOINT = process.env.DEV_VESSEL_ENDPOINT ?? "http://127.0.0.1:8090";
     const res = await fetch(`${DEV_VESSEL_ENDPOINT}/v2/impulses/resolve`, {
@@ -516,6 +691,8 @@ export async function generateGapGoalCandidates(
         // CHANGE-35: an investigation of a gap with no edit site asks for its DECOMPOSITION, structured: the target shape
         // and the gap id go on the run-goal body, so goal-host binds them instead of recovering them from the text.
         ...(gSite ? {} : { runGoal: { expected_output_shapes: ["gapDecomposition"], variables: { decompose_gap_id: String(g.id) } } }),
+        // A compose would refuse it as unarmed (gap-goal-unarmed-skip): the pick decides whether it is dispatched.
+        ...(gSite && unarmedSrcSite(gMeta) ? { unarmedSrcSite: true as const } : {}),
       });
       if (out.length >= 5) break;
     }

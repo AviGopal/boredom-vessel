@@ -25,7 +25,7 @@
  */
 
 import { resolveVesselAdditionScaffoldDispatch } from "./resolvers/vesselAdditionScaffoldDispatch";
-import { generateGapGoalCandidates } from "./goal-generation";
+import { generateGapGoalCandidates, decideUnarmedSkip, settleUnarmedSkip } from "./goal-generation";
 import { settleGapGoalPost, settleOneShotDispatch } from "./dispatch-refusal";
 import { BOREDOM_TAG, externalTracesSince, isIdle as checkIdle } from "./idle-check";
 import { INITIAL_EXTERNAL_GATE_STATE, deferForExternal, externalGateOn, type ExternalGateState } from "./external-gate";
@@ -2709,6 +2709,8 @@ interface ShapeDrivenCandidate {
   run_goal?: { expected_output_shapes: string[]; variables: Record<string, string> };
   /** A gap goal's row-input fingerprint S (row-state.ts), from the row this candidate was read from. */
   row_state?: string;
+  /** A gap goal for a row a compose would refuse as unarmed, at a src/ edit site (goal-generation.ts unarmedSrcSite). */
+  unarmed_src_site?: true;
 }
 
 interface ShapeDrivenPick {
@@ -2717,6 +2719,8 @@ interface ShapeDrivenPick {
   reason: string;
   /** The candidate's row-input fingerprint S (gap goals only), logged on the reservation line. */
   row_state?: string;
+  /** The gap-goal-unarmed-skip decision this pick carries to its slot's verdict, when a flagged candidate won. */
+  unarmed_skip?: string;
 }
 
 let candidateCache: { fetchedAt: number; entries: ShapeDrivenCandidate[] } | null = null;
@@ -2772,7 +2776,7 @@ async function fetchShapeDrivenCandidates(): Promise<ShapeDrivenCandidate[]> {
     }
     try {
     const gapGoals = await generateGapGoalCandidates(ACTIVITY_API_ENDPOINT, API_KEY, goalHostBase);
-    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText, ...(g.runGoal ? { run_goal: g.runGoal } : {}), ...(g.rowState ? { row_state: g.rowState } : {}) });
+    for (const g of gapGoals) entries.push({ template_id: g.templateId, input_shapes: [], output_shapes: g.shapes, tags: [], goal_text: g.goalText, ...(g.runGoal ? { run_goal: g.runGoal } : {}), ...(g.rowState ? { row_state: g.rowState } : {}), ...(g.unarmedSrcSite ? { unarmed_src_site: true as const } : {}) });
   } catch {
     /* fail open */
   }
@@ -3516,7 +3520,9 @@ async function pickByShapeAvailability(
     // dispatcher without recording an outcome would leave their inflated
     // posterior winning every draw in a reserve->null hot loop.
     !(c.template_id.startsWith("gap-goal:") &&
-      Date.now() - (gapGoalLastDispatchAt.get(c.template_id) ?? 0) < GAP_GOAL_COOLDOWN_MS));
+      Date.now() - (gapGoalLastDispatchAt.get(c.template_id) ?? 0) < GAP_GOAL_COOLDOWN_MS) &&
+    // A flagged winner the gap-goal-unarmed-skip variant skipped cools as a dispatched gap goal does (empty under variant-0).
+    !(Date.now() - (unarmedSkipCooledAt.get(c.template_id) ?? -Infinity) < GAP_GOAL_COOLDOWN_MS));
   if (eligible.length === 0) return null;
   // on_row_change: a gap-goal arm whose row changed since its last outcome is reset before anything reads its memory.
   for (const c of eligible) {
@@ -3526,6 +3532,9 @@ async function pickByShapeAvailability(
   const coldPool = eligible.filter((c) => (momentumByTemplate.get(c.template_id)?.outcomes.length ?? 0) === 0);
   let best: ShapeDrivenPick | null = null;
   let bestOff: { template_id: string; score: number } | null = null;
+  // The same ranking without flagged candidates (gap-goal-unarmed-skip): what fills the slot when the variant skips.
+  let bestUnflagged: ShapeDrivenPick | null = null;
+  let bestFlagged = false;
   // V24f (2026-06-08): score each eligible template via UCB1 + shape-availability.
   // Unsampled templates are picked first (UCB bonus is +∞ for n=0). Once sampled,
   // exploration bonus decays naturally; pipeline-pull factor still rewards
@@ -3557,6 +3566,15 @@ async function pickByShapeAvailability(
         reason: `${ucb.reason}${armForgiveness(c.template_id) === "hold" ? ` row-held S=${shortRowState(lastRowStateByTemplate.get(c.template_id))}` : ""} inputs=${inputMatchSummary}`,
         ...(c.row_state ? { row_state: c.row_state } : {}),
       };
+      bestFlagged = c.unarmed_src_site === true;
+    }
+    if (c.unarmed_src_site !== true && (!bestUnflagged || ucb.score > bestUnflagged.score)) {
+      bestUnflagged = {
+        template_id: c.template_id,
+        score: ucb.score,
+        reason: `${ucb.reason}${armForgiveness(c.template_id) === "hold" ? ` row-held S=${shortRowState(lastRowStateByTemplate.get(c.template_id))}` : ""} inputs=${inputMatchSummary}`,
+        ...(c.row_state ? { row_state: c.row_state } : {}),
+      };
     }
     // The same pick with the trap rules off: when they differ, the rules changed this pick — said, so it is visible.
     const off = ucbScoreImpl(c.template_id, shapeAvail, priorityWeight, coldPool.length, SELECTION_TRAPS_OFF);
@@ -3564,6 +3582,14 @@ async function pickByShapeAvailability(
   }
   if (best && bestOff && best.template_id !== bestOff.template_id) {
     console.log(`[pool/selection-traps] pick changed: ${best.template_id} (${best.reason}) instead of ${bestOff.template_id} — idle cost decay / cold-window recovery`);
+  }
+  // A flagged winner: the gap-goal-unarmed-skip variant decides whether it, or the best unflagged candidate, fills the slot.
+  if (best && bestFlagged) {
+    const d = await decideUnarmedSkip(best, bestUnflagged);
+    if (d.dispatch !== best.template_id) unarmedSkipCooledAt.set(best.template_id, Date.now());
+    if (d.dispatch === null) return null;
+    const pick: ShapeDrivenPick = d.dispatch === best.template_id ? best : bestUnflagged!;
+    return d.decision ? { ...pick, unarmed_skip: d.decision } : pick;
   }
   return best;
 }
@@ -3612,6 +3638,24 @@ const GAP_GOAL_COOLDOWN_MS = parseInt(process.env.GAP_GOAL_COOLDOWN_MS ?? "60000
 // dispatch status rather than a wall-clock deadline (see the grader below). Leaving
 // the env var readable would invite re-introducing a deadline as a verdict.
 const gapGoalLastDispatchAt = new Map<string, number>();
+// A gap-goal-unarmed-skip decision waits on the goal that filled its slot: a gap goal's goal-host dispatch, whose
+// terminal reached verdict (the grader below) settles it. Any other fill (a light-dispatch template, which runs no
+// goal-host walk, or no dispatch at all) leaves it ungraded, logged.
+const unarmedSkipByDispatch = new Map<string, string>();
+// When the variant last skipped each flagged winner: it then sits out GAP_GOAL_COOLDOWN_MS, as a dispatched gap goal does,
+// so one row yields at most one decision per cooldown under either variant.
+const unarmedSkipCooledAt = new Map<string, number>();
+function bindUnarmedSkipDecision(decision: string, templateId: string, result: { dispatch_id: string } | null): void {
+  if (!result) { settleUnarmedSkip(decision, null, `no dispatch of ${templateId}`); return; }
+  if (!templateId.startsWith("gap-goal:") || result.dispatch_id === "gap-goal-dispatch") { settleUnarmedSkip(decision, null, `${templateId} runs no goal-host walk`); return; }
+  unarmedSkipByDispatch.set(result.dispatch_id, decision);
+}
+function settleUnarmedSkipForDispatch(dispatchId: string, reached: boolean | null, why: string): void {
+  const decision = unarmedSkipByDispatch.get(dispatchId);
+  if (!decision) return;
+  unarmedSkipByDispatch.delete(dispatchId);
+  settleUnarmedSkip(decision, reached, why, dispatchId);
+}
 
 async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: string; execution_id?: string; success: boolean } | null> {
   // V30: dispatch wall-clock IS the cost actual the pool experiences (it blocks the
@@ -3705,6 +3749,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
                 if (rec.status && rec.status !== "running") {
                   recordOutcomeByTemplate(templateId, rec.reached === true, { row_state: reservedS });
                   console.log(`[gap-goal/grade] ${templateId} dispatch=${dispatchId} terminal status=${rec.status} reached=${String(rec.reached)} after ${i + 1} polls S=${shortRowState(reservedS)}`);
+                  settleUnarmedSkipForDispatch(dispatchId, rec.reached === true, "");
                   return;
                 }
               } catch {
@@ -3712,6 +3757,7 @@ async function dispatchByTemplateId(templateId: string): Promise<{ dispatch_id: 
                 continue;
               }
             }
+            settleUnarmedSkipForDispatch(dispatchId, null, "its dispatch reached no terminal status");
             console.warn(`[gap-goal/grade] ${templateId} dispatch=${dispatchId} NOT GRADED — no terminal status within ${POLL_BACKOFF_MS.reduce((a, b) => a + b, 0) / 1000}s (${sawRunning ? "still running" : "never observed"}). Recording no outcome; a deadline is not a verdict. S=${shortRowState(reservedS)}`);
           })().catch(() => { /* never grade on an error in the grader itself */ });
         }
@@ -4356,6 +4402,7 @@ async function poolLoop(): Promise<void> {
             const t0shape = Date.now();
             const result = await dispatchByTemplateId(shapePick.template_id);
             inFlight.delete(reserveId);
+            if (shapePick.unarmed_skip) bindUnarmedSkipDecision(shapePick.unarmed_skip, shapePick.template_id, result);
             if (result) {
               const durationMs = Date.now() - t0shape;
               const costTokens = expectedCostTokens(shapePick.template_id);

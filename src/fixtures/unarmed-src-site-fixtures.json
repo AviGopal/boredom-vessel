@@ -1,0 +1,19 @@
+{
+  "contract": "development-vessel src/judge/gap-eligibility.ts composeEligibilitySkipReason: `unarmed` is the verdict for an open, unheld row whose edit site is not its own check exactly when boredom's unarmedForCompose is true; unarmedSrcSite adds that the row's edit_site names a src/ file.",
+  "cases": [
+    { "name": "no falsifier, repos src site", "meta": { "edit_site": "repos/development-vessel/src/resolvers/a.ts" }, "unarmed": true, "flag": true },
+    { "name": "no falsifier, bare src site", "meta": { "edit_site": "src/resolvers/a.ts" }, "unarmed": true, "flag": true },
+    { "name": "class3 string", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": "class3" }, "unarmed": true, "flag": true },
+    { "name": "falsifier none", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": "none" }, "unarmed": true, "flag": true },
+    { "name": "class2 string, armed", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": "class2", "evidence_resolve": { "shape": "test_suite", "input": { "test_file": "test/checks/a.check.ts", "vessel": "development-vessel" } } }, "unarmed": false, "flag": false },
+    { "name": "class1 object, armed", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": { "class": "class1" } }, "unarmed": false, "flag": false },
+    { "name": "CLASS2 upper case, armed", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": "CLASS2" }, "unarmed": false, "flag": false },
+    { "name": "class2, its own check refused by the supply", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": "class2", "evidence_resolve": { "shape": "test_suite", "input": { "test_file": "test/checks/a.check.ts", "vessel": "development-vessel" } }, "check_supply": { "state": "arm_refused", "test_file": "test/checks/a.check.ts", "vessel": "development-vessel" } }, "unarmed": true, "flag": true },
+    { "name": "class2, refused path carries the repos prefix", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": "class2", "evidence_resolve": { "shape": "test_suite", "input": { "test_file": "test/checks/a.check.ts", "vessel": "development-vessel" } }, "check_supply": { "state": "arm_refused", "test_file": "repos/development-vessel/test/checks/a.check.ts" } }, "unarmed": true, "flag": true },
+    { "name": "class2, the supply refused another file", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": "class2", "evidence_resolve": { "shape": "test_suite", "input": { "test_file": "test/checks/a.check.ts", "vessel": "development-vessel" } }, "check_supply": { "state": "arm_refused", "test_file": "test/checks/b.check.ts", "vessel": "development-vessel" } }, "unarmed": false, "flag": false },
+    { "name": "class2, the supply armed", "meta": { "edit_site": "repos/development-vessel/src/a.ts", "falsifier": "class2", "evidence_resolve": { "shape": "test_suite", "input": { "test_file": "test/checks/a.check.ts", "vessel": "development-vessel" } }, "check_supply": { "state": "armed", "test_file": "test/checks/a.check.ts", "vessel": "development-vessel" } }, "unarmed": false, "flag": false },
+    { "name": "unarmed, a test site", "meta": { "edit_site": "repos/development-vessel/test/resolvers/a.test.ts" }, "unarmed": true, "flag": false },
+    { "name": "unarmed, a scripts site", "meta": { "edit_site": "scripts/substrate/a.sh" }, "unarmed": true, "flag": false },
+    { "name": "unarmed, a src file named only in file_path", "meta": { "file_path": "repos/development-vessel/src/a.ts" }, "unarmed": true, "flag": false }
+  ]
+}
